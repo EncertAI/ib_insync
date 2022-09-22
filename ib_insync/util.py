@@ -286,7 +286,7 @@ class timeit:
         print(self.title + ' took ' + formatSI(time.time() - self.t0) + 's')
 
 
-def run(*awaitables: Awaitable, timeout: float = None):
+def run(*awaitables: Awaitable, timeout: float = None, cancel_on_disconnect=True):
     """
     By default run the event loop forever.
 
@@ -325,7 +325,8 @@ def run(*awaitables: Awaitable, timeout: float = None):
         task = asyncio.ensure_future(future)
 
         def onError(_):
-            task.cancel()
+            if cancel_on_disconnect:
+                task.cancel()
 
         globalErrorEvent.connect(onError)
         try:

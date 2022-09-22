@@ -284,7 +284,7 @@ class IB:
             f'{util.formatSI(stats.numBytesRecv)}B received '
             f'in {stats.numMsgRecv} messages, '
             f'session time {util.formatSI(stats.duration)}s.')
-        self.client.disconnect()
+        self._run(self.client.disconnectAsync(), cancel_on_disconnect=False)
         self.disconnectedEvent.emit()
 
     def isConnected(self) -> bool:
@@ -304,8 +304,8 @@ class IB:
     timeRangeAsync = staticmethod(util.timeRangeAsync)
     waitUntil = staticmethod(util.waitUntil)
 
-    def _run(self, *awaitables: Awaitable):
-        return util.run(*awaitables, timeout=self.RequestTimeout)
+    def _run(self, *awaitables: Awaitable, cancel_on_disconnect=True):
+        return util.run(*awaitables, timeout=self.RequestTimeout, cancel_on_disconnect=cancel_on_disconnect)
 
     def waitOnUpdate(self, timeout: float = 0) -> bool:
         """
