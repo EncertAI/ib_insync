@@ -43,6 +43,7 @@ class Connection(asyncio.Protocol):
             self.transport.write_eof()
             self.transport.close()
             await self.disconnected
+            await asyncio.sleep(0.5)
 
     def isConnected(self):
         return self.transport is not None

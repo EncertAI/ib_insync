@@ -229,9 +229,6 @@ class IB:
         self.errorEvent = Event('errorEvent')
         self.timeoutEvent = Event('timeoutEvent')
 
-    def __del__(self):
-        self.disconnect()
-
     def __enter__(self):
         return self
 
@@ -269,11 +266,14 @@ class IB:
         return self._run(self.connectAsync(
             host, port, clientId, timeout, readonly, account))
 
-    def disconnect(self):
+    def disconnect(self, timeout=2.0):
         """
         Disconnect from a TWS or IB gateway application.
         This will clear all session state.
         """
+        return self._run(self.disconnectAsync(timeout))
+
+    async def disconnectAsync(self, timeout=2.0):
         if not self.client.isConnected():
             return
         stats = self.client.connectionStats()
@@ -284,7 +284,7 @@ class IB:
             f'{util.formatSI(stats.numBytesRecv)}B received '
             f'in {stats.numMsgRecv} messages, '
             f'session time {util.formatSI(stats.duration)}s.')
-        self._run(self.client.disconnectAsync(), cancel_on_disconnect=False)
+        await self.client.disconnectAsync(timeout)
         self.disconnectedEvent.emit()
 
     def isConnected(self) -> bool:
@@ -304,8 +304,8 @@ class IB:
     timeRangeAsync = staticmethod(util.timeRangeAsync)
     waitUntil = staticmethod(util.waitUntil)
 
-    def _run(self, *awaitables: Awaitable, cancel_on_disconnect=True):
-        return util.run(*awaitables, timeout=self.RequestTimeout, cancel_on_disconnect=cancel_on_disconnect)
+    def _run(self, *awaitables: Awaitable):
+        return util.run(*awaitables, timeout=self.RequestTimeout)
 
     def waitOnUpdate(self, timeout: float = 0) -> bool:
         """
@@ -999,7 +999,7 @@ class IB:
 
     def reqHistoricalData(
             self, contract: Contract,
-            endDateTime: Union[datetime.datetime, datetime.date, str, None],
+            endDateTime: Union[datetime.datetime, str, None],
             durationStr: str, barSizeSetting: str, whatToShow: str,
             useRTH: bool, formatDate: int = 1, keepUpToDate: bool = False,
             chartOptions: List[TagValue] = [],
@@ -1014,7 +1014,7 @@ class IB:
         Args:
             contract: Contract of interest.
             endDateTime: Can be set to '' to indicate the current time,
-                or it can be given as a datetime.date or datetime.datetime,
+                or it can be given as datetime.datetime,
                 or it can be given as a string in 'yyyyMMdd HH:mm:ss' format.
                 If no timezone is given then the TWS login timezone is used.
             durationStr: Time span of all the bars. Examples:
@@ -1066,7 +1066,7 @@ class IB:
     def reqHistoricalSchedule(
             self, contract: Contract, numDays: int,
             endDateTime: Union[
-                datetime.datetime, datetime.date, str, None] = '',
+                datetime.datetime, str, None] = '',
             useRTH: bool = True) -> HistoricalSchedule:
         """
         Request historical schedule.
@@ -1077,7 +1077,7 @@ class IB:
             contract: Contract of interest.
             numDays: Number of days.
             endDateTime: Can be set to '' to indicate the current time,
-                or it can be given as a datetime.date or datetime.datetime,
+                or it can be given as a datetime.datetime,
                 or it can be given as a string in 'yyyyMMdd HH:mm:ss' format.
                 If no timezone is given then the TWS login timezone is used.
             useRTH: If True then show schedule for Regular Trading Hours,
@@ -1088,8 +1088,8 @@ class IB:
 
     def reqHistoricalTicks(
             self, contract: Contract,
-            startDateTime: Union[str, datetime.date],
-            endDateTime: Union[str, datetime.date],
+            startDateTime: Union[str, datetime.datetime],
+            endDateTime: Union[str, datetime.datetime],
             numberOfTicks: int, whatToShow: str, useRth: bool,
             ignoreSize: bool = False,
             miscOptions: List[TagValue] = []) -> List:
@@ -1103,9 +1103,8 @@ class IB:
 
         Args:
             contract: Contract to query.
-            startDateTime: Can be given as a datetime.date or
-                datetime.datetime, or it can be given as a string in
-                'yyyyMMdd HH:mm:ss' format.
+            startDateTime: Can be given as a datetime.datetime,
+                or it can be given as a string in 'yyyyMMdd HH:mm:ss' format.
                 If no timezone is given then the TWS login timezone is used.
             endDateTime: One of ``startDateTime`` or ``endDateTime`` can
                 be given, the other must be blank.
@@ -1567,8 +1566,8 @@ class IB:
 
     def reqHistoricalNews(
             self, conId: int, providerCodes: str,
-            startDateTime: Union[str, datetime.date],
-            endDateTime: Union[str, datetime.date],
+            startDateTime: Union[str, datetime.datetime],
+            endDateTime: Union[str, datetime.datetime],
             totalResults: int,
             historicalNewsOptions: List[TagValue] = None) -> HistoricalNews:
         """
@@ -1583,11 +1582,11 @@ class IB:
             providerCodes: A '+'-separated list of provider codes, like
                 'BZ+FLY'.
             startDateTime: The (exclusive) start of the date range.
-                Can be given as a datetime.date or datetime.datetime,
+                Can be given as a datetime.datetime,
                 or it can be given as a string in 'yyyyMMdd HH:mm:ss' format.
                 If no timezone is given then the TWS login timezone is used.
             endDateTime: The (inclusive) end of the date range.
-                Can be given as a datetime.date or datetime.datetime,
+                Can be given as a datetime.datetime,
                 or it can be given as a string in 'yyyyMMdd HH:mm:ss' format.
                 If no timezone is given then the TWS login timezone is used.
             totalResults: Maximum number of headlines to fetch (300 max).
@@ -1699,7 +1698,7 @@ class IB:
             self._logger.info('Synchronization complete')
             self.connectedEvent.emit()
         except BaseException:
-            self.disconnect()
+            await self.disconnectAsync()
             raise
         return self
 
@@ -1865,7 +1864,7 @@ class IB:
 
     async def reqHistoricalDataAsync(
             self, contract: Contract,
-            endDateTime: Union[datetime.datetime, datetime.date, str, None],
+            endDateTime: Union[datetime.datetime, str, None],
             durationStr: str, barSizeSetting: str,
             whatToShow: str, useRTH: bool,
             formatDate: int = 1, keepUpToDate: bool = False,
@@ -1902,7 +1901,7 @@ class IB:
     def reqHistoricalScheduleAsync(
             self, contract: Contract, numDays: int,
             endDateTime: Union[
-                datetime.datetime, datetime.date, str, None] = '',
+                datetime.datetime, str, None] = '',
             useRTH: bool = True) -> Awaitable[HistoricalSchedule]:
         reqId = self.client.getReqId()
         future = self.wrapper.startReq(reqId, contract)
@@ -1914,8 +1913,8 @@ class IB:
 
     def reqHistoricalTicksAsync(
             self, contract: Contract,
-            startDateTime: Union[str, datetime.date],
-            endDateTime: Union[str, datetime.date],
+            startDateTime: Union[str, datetime.datetime],
+            endDateTime: Union[str, datetime.datetime],
             numberOfTicks: int, whatToShow: str, useRth: bool,
             ignoreSize: bool = False,
             miscOptions: List[TagValue] = []) -> Awaitable[List]:
@@ -2048,8 +2047,8 @@ class IB:
 
     async def reqHistoricalNewsAsync(
             self, conId: int, providerCodes: str,
-            startDateTime: Union[str, datetime.date],
-            endDateTime: Union[str, datetime.date],
+            startDateTime: Union[str, datetime.datetime],
+            endDateTime: Union[str, datetime.datetime],
             totalResults: int,
             historicalNewsOptions: List[TagValue] = None) -> \
             Optional[HistoricalNews]:

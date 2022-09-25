@@ -286,7 +286,7 @@ class timeit:
         print(self.title + ' took ' + formatSI(time.time() - self.t0) + 's')
 
 
-def run(*awaitables: Awaitable, timeout: float = None, cancel_on_disconnect=True):
+def run(*awaitables: Awaitable, timeout: float = None):
     """
     By default run the event loop forever.
 
@@ -325,8 +325,7 @@ def run(*awaitables: Awaitable, timeout: float = None, cancel_on_disconnect=True
         task = asyncio.ensure_future(future)
 
         def onError(_):
-            if cancel_on_disconnect:
-                task.cancel()
+            task.cancel()
 
         globalErrorEvent.connect(onError)
         try:
@@ -504,17 +503,15 @@ def useQt(qtLib: str = 'PyQt5', period: float = 0.01):
     qt_step()
 
 
-def formatIBDatetime(dt: Union[date, datetime, str, None]) -> str:
+def formatIBDatetime(dt: Union[datetime, str, None]) -> str:
     """Format date or datetime to string that IB uses."""
     if not dt:
         s = ''
     elif isinstance(dt, datetime):
         if dt.tzinfo:
-            # convert to local system timezone
-            dt = dt.astimezone(tz=None)
-        s = dt.strftime('%Y%m%d %H:%M:%S')
-    elif isinstance(dt, date):
-        s = dt.strftime('%Y%m%d 23:59:59')
+            # convert to UTC timezone
+            dt = dt.astimezone(tz='UTC')
+        s = dt.strftime(f'%Y%m%d-%H:%M:%S')
     else:
         s = dt
     return s

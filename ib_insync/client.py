@@ -226,7 +226,7 @@ class Client:
 
     def disconnect(self, timeout=2.0):
         """Disconnect from IB connection."""
-        run(self.disconnectAsync(timeout), cancel_on_disconnect=False)
+        run(self.disconnectAsync(timeout))
 
     async def disconnectAsync(self, timeout=2.0):
         self._logger.info('Disconnecting')
@@ -372,7 +372,7 @@ class Client:
             self.apiError.emit(msg)
         self.wrapper.setEventsDone()
         if wasReady:
-            self.wrapper.connectionClosed()
+            self.wrapper.connectionClosed(connected=self.isConnected())
         self.reset()
         if wasReady:
             self.apiEnd.emit()
