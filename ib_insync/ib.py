@@ -232,8 +232,14 @@ class IB:
     def __enter__(self):
         return self
 
+    async def __aenter__(self):
+        return self
+
     def __exit__(self, *_exc):
         self.disconnect()
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self.disconnectAsync()
 
     def __repr__(self):
         conn = (f'connected to {self.client.host}:'
