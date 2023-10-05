@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ib_insync.client &mdash; ib_insync 0.9.71 documentation</title>
+  <title>ib_insync.client &mdash; ib_insync 0.9.86 documentation</title>
       <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
       <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
     <link rel="canonical" href="https://ib_insync.readthedocs.io_modules/ib_insync/client.html"/>
@@ -13,6 +13,7 @@
         <script src="../../_static/underscore.js"></script>
         <script src="../../_static/_sphinx_javascript_frameworks_compat.js"></script>
         <script src="../../_static/doctools.js"></script>
+        <script src="../../_static/sphinx_highlight.js"></script>
     <script src="../../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" /> 
@@ -59,9 +60,9 @@
         <div class="rst-content">
           <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-      <li><a href="../../index.html" class="icon icon-home"></a> &raquo;</li>
-          <li><a href="../index.html">Module code</a> &raquo;</li>
-      <li>ib_insync.client</li>
+      <li><a href="../../index.html" class="icon icon-home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">ib_insync.client</li>
       <li class="wy-breadcrumbs-aside">
       </li>
   </ul>
@@ -76,22 +77,23 @@
 <span class="kn">import</span> <span class="nn">asyncio</span>
 <span class="kn">import</span> <span class="nn">io</span>
 <span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">math</span>
 <span class="kn">import</span> <span class="nn">struct</span>
 <span class="kn">import</span> <span class="nn">time</span>
 <span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">deque</span>
-<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span>
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Deque</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span>
 
 <span class="kn">from</span> <span class="nn">eventkit</span> <span class="kn">import</span> <span class="n">Event</span>
 
 <span class="kn">from</span> <span class="nn">.connection</span> <span class="kn">import</span> <span class="n">Connection</span>
 <span class="kn">from</span> <span class="nn">.contract</span> <span class="kn">import</span> <span class="n">Contract</span>
 <span class="kn">from</span> <span class="nn">.decoder</span> <span class="kn">import</span> <span class="n">Decoder</span>
-<span class="kn">from</span> <span class="nn">.objects</span> <span class="kn">import</span> <span class="n">ConnectionStats</span>
+<span class="kn">from</span> <span class="nn">.objects</span> <span class="kn">import</span> <span class="n">ConnectionStats</span><span class="p">,</span> <span class="n">WshEventData</span>
 <span class="kn">from</span> <span class="nn">.util</span> <span class="kn">import</span> <span class="n">UNSET_DOUBLE</span><span class="p">,</span> <span class="n">UNSET_INTEGER</span><span class="p">,</span> <span class="n">dataclassAsTuple</span><span class="p">,</span> <span class="n">getLoop</span><span class="p">,</span> <span class="n">run</span>
 
 
 <div class="viewcode-block" id="Client"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client">[docs]</a><span class="k">class</span> <span class="nc">Client</span><span class="p">:</span>
-    <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Replacement for ``ibapi.client.EClient`` that uses asyncio.</span>
 
 <span class="sd">    The client is fully asynchronous and has its own</span>
@@ -157,7 +159,7 @@
     <span class="n">RequestsInterval</span> <span class="o">=</span> <span class="mi">1</span>
 
     <span class="n">MinClientVersion</span> <span class="o">=</span> <span class="mi">157</span>
-    <span class="n">MaxClientVersion</span> <span class="o">=</span> <span class="mi">167</span>
+    <span class="n">MaxClientVersion</span> <span class="o">=</span> <span class="mi">177</span>
 
     <span class="p">(</span><span class="n">DISCONNECTED</span><span class="p">,</span> <span class="n">CONNECTING</span><span class="p">,</span> <span class="n">CONNECTED</span><span class="p">)</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
 
@@ -199,8 +201,8 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_numBytesRecv</span> <span class="o">=</span> <span class="mi">0</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_numMsgRecv</span> <span class="o">=</span> <span class="mi">0</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_isThrottling</span> <span class="o">=</span> <span class="kc">False</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_msgQ</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">_timeQ</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_msgQ</span><span class="p">:</span> <span class="n">Deque</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_timeQ</span><span class="p">:</span> <span class="n">Deque</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span></div>
 
 <div class="viewcode-block" id="Client.serverVersion"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.serverVersion">[docs]</a>    <span class="k">def</span> <span class="nf">serverVersion</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_serverVersion</span></div>
@@ -213,11 +215,11 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">connState</span> <span class="o">==</span> <span class="n">Client</span><span class="o">.</span><span class="n">CONNECTED</span></div>
 
 <div class="viewcode-block" id="Client.isReady"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.isReady">[docs]</a>    <span class="k">def</span> <span class="nf">isReady</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
-        <span class="sd">&quot;&quot;&quot;Is the API connection up and running?&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Is the API connection up and running?&quot;&quot;&quot;</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_apiReady</span></div>
 
 <div class="viewcode-block" id="Client.connectionStats"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.connectionStats">[docs]</a>    <span class="k">def</span> <span class="nf">connectionStats</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ConnectionStats</span><span class="p">:</span>
-        <span class="sd">&quot;&quot;&quot;Get statistics about the connection.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get statistics about the connection.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isReady</span><span class="p">():</span>
             <span class="k">raise</span> <span class="ne">ConnectionError</span><span class="p">(</span><span class="s1">&#39;Not connected&#39;</span><span class="p">)</span>
         <span class="k">return</span> <span class="n">ConnectionStats</span><span class="p">(</span>
@@ -227,7 +229,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">_numMsgRecv</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">numMsgSent</span><span class="p">)</span></div>
 
 <div class="viewcode-block" id="Client.getReqId"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.getReqId">[docs]</a>    <span class="k">def</span> <span class="nf">getReqId</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
-        <span class="sd">&quot;&quot;&quot;Get new request ID.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get new request ID.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isReady</span><span class="p">():</span>
             <span class="k">raise</span> <span class="ne">ConnectionError</span><span class="p">(</span><span class="s1">&#39;Not connected&#39;</span><span class="p">)</span>
         <span class="n">newId</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reqIdSeq</span>
@@ -235,29 +237,29 @@
         <span class="k">return</span> <span class="n">newId</span></div>
 
 <div class="viewcode-block" id="Client.updateReqId"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.updateReqId">[docs]</a>    <span class="k">def</span> <span class="nf">updateReqId</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">minReqId</span><span class="p">):</span>
-        <span class="sd">&quot;&quot;&quot;Update the next reqId to be at least ``minReqId``.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Update the next reqId to be at least ``minReqId``.&quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_reqIdSeq</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_reqIdSeq</span><span class="p">,</span> <span class="n">minReqId</span><span class="p">)</span></div>
 
 <div class="viewcode-block" id="Client.getAccounts"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.getAccounts">[docs]</a>    <span class="k">def</span> <span class="nf">getAccounts</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
-        <span class="sd">&quot;&quot;&quot;Get the list of account names that are under management.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the list of account names that are under management.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isReady</span><span class="p">():</span>
             <span class="k">raise</span> <span class="ne">ConnectionError</span><span class="p">(</span><span class="s1">&#39;Not connected&#39;</span><span class="p">)</span>
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_accounts</span></div>
 
 <div class="viewcode-block" id="Client.setConnectOptions"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.setConnectOptions">[docs]</a>    <span class="k">def</span> <span class="nf">setConnectOptions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">connectOptions</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
-        <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Set additional connect options.</span>
 
 <span class="sd">        Args:</span>
 <span class="sd">            connectOptions: Use &quot;+PACEAPI&quot; to use request-pacing built</span>
-<span class="sd">                into TWS/gateway 974+.</span>
+<span class="sd">                into TWS/gateway 974+ (obsolete).</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">connectOptions</span> <span class="o">=</span> <span class="n">connectOptions</span><span class="o">.</span><span class="n">encode</span><span class="p">()</span></div>
 
 <div class="viewcode-block" id="Client.connect"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.connect">[docs]</a>    <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span>
             <span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">port</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">clientId</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
             <span class="n">timeout</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="mf">2.0</span><span class="p">):</span>
-        <span class="sd">&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Connect to a running TWS or IB gateway application.</span>
 
 <span class="sd">        Args:</span>
@@ -298,24 +300,29 @@
             <span class="k">raise</span></div>
 
 <div class="viewcode-block" id="Client.disconnect"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.disconnect">[docs]</a>    <span class="k">def</span> <span class="nf">disconnect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="sd">&quot;&quot;&quot;Disconnect from IB connection.&quot;&quot;&quot;</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Disconnect from IB connection.&quot;&quot;&quot;</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s1">&#39;Disconnecting&#39;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">connState</span> <span class="o">=</span> <span class="n">Client</span><span class="o">.</span><span class="n">DISCONNECTED</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">disconnect</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span></div>
 
-<div class="viewcode-block" id="Client.send"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.send">[docs]</a>    <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">fields</span><span class="p">):</span>
-        <span class="sd">&quot;&quot;&quot;Serialize and send the given fields using the IB socket protocol.&quot;&quot;&quot;</span>
+<div class="viewcode-block" id="Client.send"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.send">[docs]</a>    <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">fields</span><span class="p">,</span> <span class="n">makeEmpty</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Serialize and send the given fields using the IB socket protocol.&quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isConnected</span><span class="p">():</span>
             <span class="k">raise</span> <span class="ne">ConnectionError</span><span class="p">(</span><span class="s1">&#39;Not connected&#39;</span><span class="p">)</span>
 
         <span class="n">msg</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+        <span class="n">empty</span> <span class="o">=</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">UNSET_INTEGER</span><span class="p">,</span> <span class="n">UNSET_DOUBLE</span><span class="p">)</span> <span class="k">if</span> <span class="n">makeEmpty</span> <span class="k">else</span> <span class="p">(</span><span class="kc">None</span><span class="p">,)</span>
         <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">fields</span><span class="p">:</span>
             <span class="n">typ</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
-            <span class="k">if</span> <span class="n">field</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">UNSET_INTEGER</span><span class="p">,</span> <span class="n">UNSET_DOUBLE</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">empty</span><span class="p">:</span>
                 <span class="n">s</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span>
-            <span class="k">elif</span> <span class="n">typ</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">float</span><span class="p">):</span>
+            <span class="k">elif</span> <span class="n">typ</span> <span class="ow">is</span> <span class="nb">str</span><span class="p">:</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="n">field</span>
+            <span class="k">elif</span> <span class="nb">type</span> <span class="ow">is</span> <span class="nb">int</span><span class="p">:</span>
                 <span class="n">s</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">typ</span> <span class="ow">is</span> <span class="nb">float</span><span class="p">:</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="s1">&#39;Infinite&#39;</span> <span class="k">if</span> <span class="n">field</span> <span class="o">==</span> <span class="n">math</span><span class="o">.</span><span class="n">inf</span> <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
             <span class="k">elif</span> <span class="n">typ</span> <span class="ow">is</span> <span class="nb">bool</span><span class="p">:</span>
                 <span class="n">s</span> <span class="o">=</span> <span class="s1">&#39;1&#39;</span> <span class="k">if</span> <span class="n">field</span> <span class="k">else</span> <span class="s1">&#39;0&#39;</span>
             <span class="k">elif</span> <span class="n">typ</span> <span class="ow">is</span> <span class="nb">list</span><span class="p">:</span>
@@ -335,7 +342,7 @@
             <span class="n">msg</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\0</span><span class="s1">&#39;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">sendMsg</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">getvalue</span><span class="p">())</span></div>
 
-<div class="viewcode-block" id="Client.sendMsg"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.sendMsg">[docs]</a>    <span class="k">def</span> <span class="nf">sendMsg</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+<div class="viewcode-block" id="Client.sendMsg"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.sendMsg">[docs]</a>    <span class="k">def</span> <span class="nf">sendMsg</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
         <span class="n">loop</span> <span class="o">=</span> <span class="n">getLoop</span><span class="p">()</span>
         <span class="n">t</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
         <span class="n">times</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_timeQ</span>
@@ -532,8 +539,10 @@
             <span class="n">order</span><span class="o">.</span><span class="n">goodTillDate</span><span class="p">,</span>
             <span class="n">order</span><span class="o">.</span><span class="n">faGroup</span><span class="p">,</span>
             <span class="n">order</span><span class="o">.</span><span class="n">faMethod</span><span class="p">,</span>
-            <span class="n">order</span><span class="o">.</span><span class="n">faPercentage</span><span class="p">,</span>
-            <span class="n">order</span><span class="o">.</span><span class="n">faProfile</span><span class="p">,</span>
+            <span class="n">order</span><span class="o">.</span><span class="n">faPercentage</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">version</span> <span class="o">&lt;</span> <span class="mi">177</span><span class="p">:</span>
+            <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">order</span><span class="o">.</span><span class="n">faProfile</span><span class="p">]</span>
+        <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span>
             <span class="n">order</span><span class="o">.</span><span class="n">modelCode</span><span class="p">,</span>
             <span class="n">order</span><span class="o">.</span><span class="n">shortSaleSlot</span><span class="p">,</span>
             <span class="n">order</span><span class="o">.</span><span class="n">designatedLocation</span><span class="p">,</span>
@@ -625,7 +634,7 @@
             <span class="n">order</span><span class="o">.</span><span class="n">randomizeSize</span><span class="p">,</span>
             <span class="n">order</span><span class="o">.</span><span class="n">randomizePrice</span><span class="p">]</span>
 
-        <span class="k">if</span> <span class="n">order</span><span class="o">.</span><span class="n">orderType</span> <span class="o">==</span> <span class="s1">&#39;PEG BENCH&#39;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">order</span><span class="o">.</span><span class="n">orderType</span> <span class="ow">in</span> <span class="p">(</span><span class="s1">&#39;PEG BENCH&#39;</span><span class="p">,</span> <span class="s1">&#39;PEGBENCH&#39;</span><span class="p">):</span>
             <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span>
                 <span class="n">order</span><span class="o">.</span><span class="n">referenceContractId</span><span class="p">,</span>
                 <span class="n">order</span><span class="o">.</span><span class="n">isPeggedChangeAmountDecrease</span><span class="p">,</span>
@@ -670,11 +679,27 @@
             <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">order</span><span class="o">.</span><span class="n">autoCancelParent</span><span class="p">]</span>
         <span class="k">if</span> <span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">166</span><span class="p">:</span>
             <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">order</span><span class="o">.</span><span class="n">advancedErrorOverride</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">169</span><span class="p">:</span>
+            <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">order</span><span class="o">.</span><span class="n">manualOrderTime</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">version</span> <span class="o">&gt;=</span> <span class="mi">170</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">contract</span><span class="o">.</span><span class="n">exchange</span> <span class="o">==</span> <span class="s1">&#39;IBKRATS&#39;</span><span class="p">:</span>
+                <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">order</span><span class="o">.</span><span class="n">minTradeQty</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">order</span><span class="o">.</span><span class="n">orderType</span> <span class="ow">in</span> <span class="p">(</span><span class="s1">&#39;PEG BEST&#39;</span><span class="p">,</span> <span class="s1">&#39;PEGBEST&#39;</span><span class="p">):</span>
+                <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span>
+                    <span class="n">order</span><span class="o">.</span><span class="n">minCompeteSize</span><span class="p">,</span>
+                    <span class="n">order</span><span class="o">.</span><span class="n">competeAgainstBestOffset</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">order</span><span class="o">.</span><span class="n">competeAgainstBestOffset</span> <span class="o">==</span> <span class="n">math</span><span class="o">.</span><span class="n">inf</span><span class="p">:</span>
+                    <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">order</span><span class="o">.</span><span class="n">midOffsetAtWhole</span><span class="p">,</span> <span class="n">order</span><span class="o">.</span><span class="n">midOffsetAtHalf</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="n">order</span><span class="o">.</span><span class="n">orderType</span> <span class="ow">in</span> <span class="p">(</span><span class="s1">&#39;PEG MID&#39;</span><span class="p">,</span> <span class="s1">&#39;PEGMID&#39;</span><span class="p">):</span>
+                <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">order</span><span class="o">.</span><span class="n">midOffsetAtWhole</span><span class="p">,</span> <span class="n">order</span><span class="o">.</span><span class="n">midOffsetAtHalf</span><span class="p">]</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="o">*</span><span class="n">fields</span><span class="p">)</span></div>
 
-<div class="viewcode-block" id="Client.cancelOrder"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.cancelOrder">[docs]</a>    <span class="k">def</span> <span class="nf">cancelOrder</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">orderId</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">orderId</span><span class="p">)</span></div>
+<div class="viewcode-block" id="Client.cancelOrder"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.cancelOrder">[docs]</a>    <span class="k">def</span> <span class="nf">cancelOrder</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">orderId</span><span class="p">,</span> <span class="n">manualCancelOrderTime</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">):</span>
+        <span class="n">fields</span> <span class="o">=</span> <span class="p">[</span><span class="mi">4</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">orderId</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">serverVersion</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="mi">169</span><span class="p">:</span>
+            <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">manualCancelOrderTime</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="o">*</span><span class="n">fields</span><span class="p">)</span></div>
 
 <div class="viewcode-block" id="Client.reqOpenOrders"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.reqOpenOrders">[docs]</a>    <span class="k">def</span> <span class="nf">reqOpenOrders</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span></div>
@@ -697,9 +722,15 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">8</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">numIds</span><span class="p">)</span></div>
 
 <div class="viewcode-block" id="Client.reqContractDetails"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.reqContractDetails">[docs]</a>    <span class="k">def</span> <span class="nf">reqContractDetails</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reqId</span><span class="p">,</span> <span class="n">contract</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
-            <span class="mi">9</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">reqId</span><span class="p">,</span> <span class="n">contract</span><span class="p">,</span> <span class="n">contract</span><span class="o">.</span><span class="n">includeExpired</span><span class="p">,</span>
-            <span class="n">contract</span><span class="o">.</span><span class="n">secIdType</span><span class="p">,</span> <span class="n">contract</span><span class="o">.</span><span class="n">secId</span><span class="p">)</span></div>
+        <span class="n">fields</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="mi">9</span><span class="p">,</span> <span class="mi">8</span><span class="p">,</span> <span class="n">reqId</span><span class="p">,</span>
+            <span class="n">contract</span><span class="p">,</span>
+            <span class="n">contract</span><span class="o">.</span><span class="n">includeExpired</span><span class="p">,</span>
+            <span class="n">contract</span><span class="o">.</span><span class="n">secIdType</span><span class="p">,</span>
+            <span class="n">contract</span><span class="o">.</span><span class="n">secId</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">serverVersion</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="mi">176</span><span class="p">:</span>
+            <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span><span class="n">contract</span><span class="o">.</span><span class="n">issuerId</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="o">*</span><span class="n">fields</span><span class="p">)</span></div>
 
 <div class="viewcode-block" id="Client.reqMktDepth"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.reqMktDepth">[docs]</a>    <span class="k">def</span> <span class="nf">reqMktDepth</span><span class="p">(</span>
             <span class="bp">self</span><span class="p">,</span> <span class="n">reqId</span><span class="p">,</span> <span class="n">contract</span><span class="p">,</span> <span class="n">numRows</span><span class="p">,</span> <span class="n">isSmartDepth</span><span class="p">,</span> <span class="n">mktDepthOptions</span><span class="p">):</span>
@@ -1019,8 +1050,20 @@
 <div class="viewcode-block" id="Client.cancelWshMetaData"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.cancelWshMetaData">[docs]</a>    <span class="k">def</span> <span class="nf">cancelWshMetaData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reqId</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">101</span><span class="p">,</span> <span class="n">reqId</span><span class="p">)</span></div>
 
-<div class="viewcode-block" id="Client.reqWshEventData"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.reqWshEventData">[docs]</a>    <span class="k">def</span> <span class="nf">reqWshEventData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reqId</span><span class="p">,</span> <span class="n">conId</span><span class="p">):</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">102</span><span class="p">,</span> <span class="n">reqId</span><span class="p">,</span> <span class="n">conId</span><span class="p">)</span></div>
+<div class="viewcode-block" id="Client.reqWshEventData"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.reqWshEventData">[docs]</a>    <span class="k">def</span> <span class="nf">reqWshEventData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reqId</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">WshEventData</span><span class="p">):</span>
+        <span class="n">fields</span> <span class="o">=</span> <span class="p">[</span><span class="mi">102</span><span class="p">,</span> <span class="n">reqId</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">conId</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">serverVersion</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="mi">171</span><span class="p">:</span>
+            <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">filter</span><span class="p">,</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">fillWatchlist</span><span class="p">,</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">fillPortfolio</span><span class="p">,</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">fillCompetitors</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">serverVersion</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="mi">173</span><span class="p">:</span>
+            <span class="n">fields</span> <span class="o">+=</span> <span class="p">[</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">startDate</span><span class="p">,</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">endDate</span><span class="p">,</span>
+                <span class="n">data</span><span class="o">.</span><span class="n">totalLimit</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="o">*</span><span class="n">fields</span><span class="p">,</span> <span class="n">makeEmpty</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span></div>
 
 <div class="viewcode-block" id="Client.cancelWshEventData"><a class="viewcode-back" href="../../api.html#ib_insync.client.Client.cancelWshEventData">[docs]</a>    <span class="k">def</span> <span class="nf">cancelWshEventData</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reqId</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">103</span><span class="p">,</span> <span class="n">reqId</span><span class="p">)</span></div>
@@ -1036,7 +1079,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2022, Ewald de Wit.</p>
+    <p>&#169; Copyright 2023, Ewald de Wit.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a

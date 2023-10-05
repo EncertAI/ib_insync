@@ -3,17 +3,18 @@
 import asyncio
 import io
 import logging
+import math
 import struct
 import time
 from collections import deque
-from typing import List, Optional
+from typing import Deque, List, Optional
 
 from eventkit import Event
 
 from .connection import Connection
 from .contract import Contract
 from .decoder import Decoder
-from .objects import ConnectionStats
+from .objects import ConnectionStats, WshEventData
 from .util import UNSET_DOUBLE, UNSET_INTEGER, dataclassAsTuple, getLoop, run
 
 
@@ -84,7 +85,7 @@ class Client:
     RequestsInterval = 1
 
     MinClientVersion = 157
-    MaxClientVersion = 167
+    MaxClientVersion = 178
 
     (DISCONNECTED, CONNECTING, CONNECTED) = range(3)
 
@@ -126,8 +127,8 @@ class Client:
         self._numBytesRecv = 0
         self._numMsgRecv = 0
         self._isThrottling = False
-        self._msgQ = deque()
-        self._timeQ = deque()
+        self._msgQ: Deque[str] = deque()
+        self._timeQ: Deque[float] = deque()
 
     def serverVersion(self) -> int:
         return self._serverVersion
@@ -177,7 +178,7 @@ class Client:
 
         Args:
             connectOptions: Use "+PACEAPI" to use request-pacing built
-                into TWS/gateway 974+.
+                into TWS/gateway 974+ (obsolete).
         """
         self.connectOptions = connectOptions.encode()
 
@@ -234,18 +235,23 @@ class Client:
         await asyncio.wait_for(self.conn.disconnectAsync(), timeout)
         self.reset()
 
-    def send(self, *fields):
+    def send(self, *fields, makeEmpty=True):
         """Serialize and send the given fields using the IB socket protocol."""
         if not self.isConnected():
             raise ConnectionError('Not connected')
 
         msg = io.StringIO()
+        empty = (None, UNSET_INTEGER, UNSET_DOUBLE) if makeEmpty else (None,)
         for field in fields:
             typ = type(field)
-            if field in (None, UNSET_INTEGER, UNSET_DOUBLE):
+            if field in empty:
                 s = ''
-            elif typ in (str, int, float):
+            elif typ is str:
+                s = field
+            elif type is int:
                 s = str(field)
+            elif typ is float:
+                s = 'Infinite' if field == math.inf else str(field)
             elif typ is bool:
                 s = '1' if field else '0'
             elif typ is list:
@@ -265,7 +271,7 @@ class Client:
             msg.write('\0')
         self.sendMsg(msg.getvalue())
 
-    def sendMsg(self, msg):
+    def sendMsg(self, msg: str):
         loop = getLoop()
         t = loop.time()
         times = self._timeQ
@@ -462,8 +468,10 @@ class Client:
             order.goodTillDate,
             order.faGroup,
             order.faMethod,
-            order.faPercentage,
-            order.faProfile,
+            order.faPercentage]
+        if version < 177:
+            fields += [order.faProfile]
+        fields += [
             order.modelCode,
             order.shortSaleSlot,
             order.designatedLocation,
@@ -555,7 +563,7 @@ class Client:
             order.randomizeSize,
             order.randomizePrice]
 
-        if order.orderType == 'PEG BENCH':
+        if order.orderType in ('PEG BENCH', 'PEGBENCH'):
             fields += [
                 order.referenceContractId,
                 order.isPeggedChangeAmountDecrease,
@@ -600,11 +608,27 @@ class Client:
             fields += [order.autoCancelParent]
         if version >= 166:
             fields += [order.advancedErrorOverride]
+        if version >= 169:
+            fields += [order.manualOrderTime]
+        if version >= 170:
+            if contract.exchange == 'IBKRATS':
+                fields += [order.minTradeQty]
+            if order.orderType in ('PEG BEST', 'PEGBEST'):
+                fields += [
+                    order.minCompeteSize,
+                    order.competeAgainstBestOffset]
+                if order.competeAgainstBestOffset == math.inf:
+                    fields += [order.midOffsetAtWhole, order.midOffsetAtHalf]
+            elif order.orderType in ('PEG MID', 'PEGMID'):
+                fields += [order.midOffsetAtWhole, order.midOffsetAtHalf]
 
         self.send(*fields)
 
-    def cancelOrder(self, orderId):
-        self.send(4, 1, orderId)
+    def cancelOrder(self, orderId, manualCancelOrderTime=''):
+        fields = [4, 1, orderId]
+        if self.serverVersion() >= 169:
+            fields += [manualCancelOrderTime]
+        self.send(*fields)
 
     def reqOpenOrders(self):
         self.send(5, 1)
@@ -627,9 +651,15 @@ class Client:
         self.send(8, 1, numIds)
 
     def reqContractDetails(self, reqId, contract):
-        self.send(
-            9, 8, reqId, contract, contract.includeExpired,
-            contract.secIdType, contract.secId)
+        fields = [
+            9, 8, reqId,
+            contract,
+            contract.includeExpired,
+            contract.secIdType,
+            contract.secId]
+        if self.serverVersion() >= 176:
+            fields += [contract.issuerId]
+        self.send(*fields)
 
     def reqMktDepth(
             self, reqId, contract, numRows, isSmartDepth, mktDepthOptions):
@@ -949,8 +979,20 @@ class Client:
     def cancelWshMetaData(self, reqId):
         self.send(101, reqId)
 
-    def reqWshEventData(self, reqId, conId):
-        self.send(102, reqId, conId)
+    def reqWshEventData(self, reqId, data: WshEventData):
+        fields = [102, reqId, data.conId]
+        if self.serverVersion() >= 171:
+            fields += [
+                data.filter,
+                data.fillWatchlist,
+                data.fillPortfolio,
+                data.fillCompetitors]
+        if self.serverVersion() >= 173:
+            fields += [
+                data.startDate,
+                data.endDate,
+                data.totalLimit]
+        self.send(*fields, makeEmpty=False)
 
     def cancelWshEventData(self, reqId):
         self.send(103, reqId)

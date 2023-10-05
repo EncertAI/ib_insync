@@ -1,12 +1,11 @@
 """Programmatic control over the TWS/gateway client software."""
 
 import asyncio
-import configparser
 import logging
-import os
+import sys
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import ClassVar, Union
+from typing import ClassVar
 
 from eventkit import Event
 
@@ -59,6 +58,8 @@ class IBC:
             Default is to use the Java VM included with TWS/gateway.
         fixuserid (str): FIX account user id (gateway only).
         fixpassword (str): FIX account password (gateway only).
+        on2fatimeout (str): What to do if 2-factor authentication times
+            out; Can be 'restart' or 'exit'.
 
     This is not intended to be run in a notebook.
 
@@ -94,9 +95,10 @@ class IBC:
     password: str = ''
     fixuserid: str = ''
     fixpassword: str = ''
+    on2fatimeout: str = ''
 
     def __post_init__(self):
-        self._isWindows = os.sys.platform == 'win32'
+        self._isWindows = sys.platform == 'win32'
         if not self.ibcPath:
             self.ibcPath = '/opt/ibc' if not self._isWindows else 'C:\\IBC'
         self._proc = None
@@ -136,7 +138,9 @@ class IBC:
             userid=('--user=', '/User:'),
             password=('--pw=', '/PW:'),
             fixuserid=('--fix-user=', '/FIXUser:'),
-            fixpassword=('--fix-pw=', '/FIXPW:'))
+            fixpassword=('--fix-pw=', '/FIXPW:'),
+            on2fatimeout=('--on2fatimeout=', '/On2FATimeout:'),
+        )
 
         # create shell command
         cmd = [
@@ -183,121 +187,6 @@ class IBC:
 
 
 @dataclass
-class IBController:
-    """
-    For new installations it is recommended to use IBC instead.
-
-    Programmatic control over starting and stopping TWS/Gateway
-    using IBController (https://github.com/ib-controller/ib-controller).
-
-    On Windows the the proactor (or quamash) event loop must have been set:
-
-    .. code-block:: python
-
-        import asyncio
-        asyncio.set_event_loop(asyncio.ProactorEventLoop())
-
-    This is not intended to be run in a notebook.
-    """
-
-    APP: str = 'TWS'  # 'TWS' or 'GATEWAY'
-    TWS_MAJOR_VRSN: str = '969'
-    TRADING_MODE: str = 'live'  # 'live' or 'paper'
-    IBC_INI: str = '~/IBController/IBController.ini'
-    IBC_PATH: str = '~/IBController'
-    TWS_PATH: str = '~/Jts'
-    LOG_PATH: str = '~/IBController/Logs'
-    TWSUSERID: str = ''
-    TWSPASSWORD: str = ''
-    JAVA_PATH: str = ''
-    TWS_CONFIG_PATH: str = ''
-
-    def __post_init__(self):
-        self._proc = None
-        self._monitor = None
-        self._logger = logging.getLogger('ib_insync.IBController')
-
-    def __enter__(self):
-        self.start()
-        return self
-
-    def __exit__(self, *_exc):
-        self.terminate()
-
-    def start(self):
-        """Launch TWS/IBG."""
-        util.run(self.startAsync())
-
-    def stop(self):
-        """Cleanly shutdown TWS/IBG."""
-        util.run(self.stopAsync())
-
-    def terminate(self):
-        """Terminate TWS/IBG."""
-        util.run(self.terminateAsync())
-
-    async def startAsync(self):
-        if self._proc:
-            return
-        self._logger.info('Starting')
-
-        # expand paths
-        d = util.dataclassAsDict(self)
-        for k, v in d.items():
-            if k.endswith('_PATH') or k.endswith('_INI'):
-                d[k] = os.path.expanduser(v)
-        if not d['TWS_CONFIG_PATH']:
-            d['TWS_CONFIG_PATH'] = d['TWS_PATH']
-        self.__dict__.update(**d)
-
-        # run shell command
-        ext = 'bat' if os.sys.platform == 'win32' else 'sh'
-        cmd = f'{d["IBC_PATH"]}/Scripts/DisplayBannerAndLaunch.{ext}'
-        env = {**os.environ, **d}
-        self._proc = await asyncio.create_subprocess_exec(
-            cmd, env=env, stdout=asyncio.subprocess.PIPE)
-        self._monitor = asyncio.ensure_future(self.monitorAsync())
-
-    async def stopAsync(self):
-        if not self._proc:
-            return
-        self._logger.info('Stopping')
-
-        # read ibcontroller ini file to get controller port
-        txt = '[section]' + open(self.IBC_INI).read()
-        config = configparser.ConfigParser()
-        config.read_string(txt)
-        contrPort = config.getint('section', 'IbControllerPort')
-
-        _reader, writer = await asyncio.open_connection('127.0.0.1', contrPort)
-        writer.write(b'STOP')
-        await writer.drain()
-        writer.close()
-        await self._proc.wait()
-        self._proc = None
-        self._monitor.cancel()
-        self._monitor = None
-
-    async def terminateAsync(self):
-        if not self._proc:
-            return
-        self._logger.info('Terminating')
-        self._monitor.cancel()
-        self._monitor = None
-        with suppress(ProcessLookupError):
-            self._proc.terminate()
-            await self._proc.wait()
-        self._proc = None
-
-    async def monitorAsync(self):
-        while self._proc:
-            line = await self._proc.stdout.readline()
-            if not line:
-                break
-            self._logger.info(line.strip().decode())
-
-
-@dataclass
 class Watchdog:
     """
     Start, connect and watch over the TWS or gateway app and try to keep it
@@ -309,9 +198,8 @@ class Watchdog:
     Watchdog unless you understand what it does and doesn't do.
 
     Args:
-        controller (Union[IBC, IBController]): (required) IBC or IBController
-            instance.
-        ib (IB): (required) IB instance to be used. Do no connect this
+        controller (IBC): (required) IBC instance.
+        ib (IB): (required) IB instance to be used. Do not connect this
             instance as Watchdog takes care of that.
         host (str): Used for connecting IB instance.
         port (int):  Used for connecting IB instance.
@@ -360,7 +248,7 @@ class Watchdog:
         'startingEvent', 'startedEvent', 'stoppingEvent', 'stoppedEvent',
         'softTimeoutEvent', 'hardTimeoutEvent']
 
-    controller: Union[IBC, IBController]
+    controller: IBC
     ib: IB
     host: str = '127.0.0.1'
     port: int = 7497
@@ -371,6 +259,7 @@ class Watchdog:
     retryDelay: float = 2
     readonly: bool = False
     account: str = ''
+    raiseSyncErrors: bool = False
     probeContract: Contract = Forex('EURUSD')
     probeTimeout: float = 4
 
@@ -422,7 +311,7 @@ class Watchdog:
                 await asyncio.sleep(self.appStartupTime)
                 await self.ib.connectAsync(
                     self.host, self.port, self.clientId, self.connectTimeout,
-                    self.readonly, self.account)
+                    self.readonly, self.account, self.raiseSyncErrors)
                 self.startedEvent.emit(self)
                 self.ib.setTimeout(self.appTimeout)
                 self.ib.timeoutEvent += onTimeout
@@ -430,7 +319,7 @@ class Watchdog:
                 self.ib.disconnectedEvent += onDisconnected
 
                 while self._runner:
-                    waiter = asyncio.Future()
+                    waiter: asyncio.Future = asyncio.Future()
                     await waiter
                     # soft timeout, probe the app with a historical request
                     self._logger.debug('Soft timeout')

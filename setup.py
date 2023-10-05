@@ -10,7 +10,7 @@ if sys.version_info < (3, 6, 0):
 
 here = Path(__file__).parent.resolve()
 
-__version__ = None
+__version__ = ''
 with open(here / 'ib_insync/version.py') as f:
     exec(f.read())
 
@@ -37,11 +37,14 @@ setup(
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
         'Programming Language :: Python :: 3 :: Only',
     ],
     keywords='ibapi tws asyncio jupyter interactive brokers async',
     packages=['ib_insync'],
     package_data={'ib_insync': ['py.typed']},
-    install_requires=['eventkit', 'nest_asyncio'],
+    install_requires=['eventkit', 'nest_asyncio',
+                      'dataclasses;python_version<"3.7"',
+                      'backports.zoneinfo;python_version<"3.9"'],
     setup_requires=['flake8']
 )

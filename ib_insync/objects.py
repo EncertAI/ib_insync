@@ -67,6 +67,7 @@ class Execution:
     evMultiplier: float = 0.0
     modelCode: str = ''
     lastLiquidity: int = 0
+    pendingPriceRevision: bool = False
 
 
 @dataclass
@@ -199,6 +200,18 @@ class HistoricalSchedule:
     sessions: List[HistoricalSession] = field(default_factory=list)
 
 
+@dataclass
+class WshEventData:
+    conId: int = UNSET_INTEGER
+    filter: str = ''
+    fillWatchlist: bool = False
+    fillPortfolio: bool = False
+    fillCompetitors: bool = False
+    startDate: str = ''
+    endDate: str = ''
+    totalLimit: int = UNSET_INTEGER
+
+
 class AccountValue(NamedTuple):
     account: str
     tag: str
@@ -310,14 +323,14 @@ class Fill(NamedTuple):
 
 class OptionComputation(NamedTuple):
     tickAttrib: int
-    impliedVol: float
-    delta: float
-    optPrice: float
-    pvDividend: float
-    gamma: float
-    vega: float
-    theta: float
-    undPrice: float
+    impliedVol: Optional[float]
+    delta: Optional[float]
+    optPrice: Optional[float]
+    pvDividend: Optional[float]
+    gamma: Optional[float]
+    vega: Optional[float]
+    theta: Optional[float]
+    undPrice: Optional[float]
 
 
 class OptionChain(NamedTuple):
@@ -481,7 +494,7 @@ class DynamicObject:
 class FundamentalRatios(DynamicObject):
     """
     See:
-    https://interactivebrokers.github.io/tws-api/fundamental_ratios_tags.html
+    https://web.archive.org/web/20200725010343/https://interactivebrokers.github.io/tws-api/fundamental_ratios_tags.html
     """
 
     pass

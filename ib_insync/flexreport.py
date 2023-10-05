@@ -18,21 +18,22 @@ class FlexError(Exception):
 
 class FlexReport:
     """
-    Download and parse IB account statements via the Flex Web Service.
-    https://guides.interactivebrokers.com/am/am/reports/flex_web_service_version_3.htm
-    https://guides.interactivebrokers.com/cp/cp.htm#am/reporting/flexqueries.htm
+    To obtain a token:
 
-    Make sure to use a XML query (not CSV). A large query can take a few
-    minutes. In the weekends the query servers can be down.
+    * Login to web portal
+    * Go to Settings
+    * Click on "Configure Flex Web Service"
+    * Generate token
     """
+
+    data: bytes
+    root: et.Element
 
     def __init__(self, token=None, queryId=None, path=None):
         """
         Download a report by giving a valid ``token`` and ``queryId``,
         or load from file by giving a valid ``path``.
         """
-        self.data = None
-        self.root = None
         if token and queryId:
             self.download(token, queryId)
         elif path:
@@ -74,13 +75,20 @@ class FlexReport:
         data = resp.read()
 
         root = et.fromstring(data)
-        if root.find('Status').text == 'Success':
-            code = root.find('ReferenceCode').text
-            baseUrl = root.find('Url').text
+        elem = root.find('Status')
+        if elem is not None and elem.text == 'Success':
+            elem = root.find('ReferenceCode')
+            assert elem is not None
+            code = elem.text
+            elem = root.find('Url')
+            assert elem is not None
+            baseUrl = elem.text
             _logger.info('Statement is being prepared...')
         else:
-            errorCode = root.find('ErrorCode').text
-            errorMsg = root.find('ErrorMessage').text
+            elem = root.find('ErrorCode')
+            errorCode = elem.text if elem is not None else ''
+            elem = root.find('ErrorMessage')
+            errorMsg = elem.text if elem is not None else ''
             raise FlexError(f'{errorCode}: {errorMsg}')
 
         while True:
@@ -91,7 +99,7 @@ class FlexReport:
             self.root = et.fromstring(self.data)
             if self.root[0].tag == 'code':
                 msg = self.root[0].text
-                if msg.startswith('Statement generation in progress'):
+                if msg and msg.startswith('Statement generation in progress'):
                     _logger.info('still working...')
                     continue
                 else:

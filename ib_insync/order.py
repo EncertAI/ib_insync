@@ -1,7 +1,7 @@
 """Order types used by Interactive Brokers."""
 
 from dataclasses import dataclass, field
-from typing import ClassVar, List, NamedTuple, Set
+from typing import ClassVar, FrozenSet, List, NamedTuple
 
 from eventkit import Event
 
@@ -50,7 +50,7 @@ class Order:
     trailStopPrice: float = UNSET_DOUBLE
     trailingPercent: float = UNSET_DOUBLE
     faGroup: str = ''
-    faProfile: str = ''
+    faProfile: str = ''  # obsolete
     faMethod: str = ''
     faPercentage: str = ''
     designatedLocation: str = ''
@@ -151,6 +151,12 @@ class Order:
     duration: int = UNSET_INTEGER
     postToAts: int = UNSET_INTEGER
     advancedErrorOverride: str = ''
+    manualOrderTime: str = ''
+    minTradeQty: int = UNSET_INTEGER
+    minCompeteSize: int = UNSET_INTEGER
+    competeAgainstBestOffset: float = UNSET_DOUBLE
+    midOffsetAtWhole: float = UNSET_DOUBLE
+    midOffsetAtHalf: float = UNSET_DOUBLE
 
     def __repr__(self):
         attrs = dataclassNonDefaults(self)
@@ -232,9 +238,10 @@ class OrderStatus:
     Filled: ClassVar[str] = 'Filled'
     Inactive: ClassVar[str] = 'Inactive'
 
-    DoneStates: ClassVar[Set[str]] = {'Filled', 'Cancelled', 'ApiCancelled'}
-    ActiveStates: ClassVar[Set[str]] = {
-        'PendingSubmit', 'ApiPending', 'PreSubmitted', 'Submitted'}
+    DoneStates: ClassVar[FrozenSet[str]] = frozenset(
+        ['Filled', 'Cancelled', 'ApiCancelled'])
+    ActiveStates: ClassVar[FrozenSet[str]] = frozenset(
+        ['PendingSubmit', 'ApiPending', 'PreSubmitted', 'Submitted'])
 
 
 @dataclass
@@ -279,17 +286,17 @@ class Trade:
         * ``cancelledEvent`` (trade: :class:`.Trade`)
     """
 
-    events: ClassVar = (
-        'statusEvent', 'modifyEvent', 'fillEvent',
-        'commissionReportEvent', 'filledEvent',
-        'cancelEvent', 'cancelledEvent')
-
     contract: Contract = field(default_factory=Contract)
     order: Order = field(default_factory=Order)
     orderStatus: 'OrderStatus' = field(default_factory=OrderStatus)
     fills: List[Fill] = field(default_factory=list)
     log: List[TradeLogEntry] = field(default_factory=list)
     advancedError: str = ''
+
+    events: ClassVar = (
+        'statusEvent', 'modifyEvent', 'fillEvent',
+        'commissionReportEvent', 'filledEvent',
+        'cancelEvent', 'cancelledEvent')
 
     def __post_init__(self):
         self.statusEvent = Event('statusEvent')
@@ -300,15 +307,15 @@ class Trade:
         self.cancelEvent = Event('cancelEvent')
         self.cancelledEvent = Event('cancelledEvent')
 
-    def isActive(self):
+    def isActive(self) -> bool:
         """True if eligible for execution, false otherwise."""
         return self.orderStatus.status in OrderStatus.ActiveStates
 
-    def isDone(self):
+    def isDone(self) -> bool:
         """True if completely filled or cancelled, false otherwise."""
         return self.orderStatus.status in OrderStatus.DoneStates
 
-    def filled(self):
+    def filled(self) -> float:
         """Number of shares filled."""
         fills = self.fills
         if self.contract.secType == 'BAG':
@@ -316,7 +323,7 @@ class Trade:
             fills = [f for f in fills if f.contract.secType == 'BAG']
         return sum(f.execution.shares for f in fills)
 
-    def remaining(self):
+    def remaining(self) -> float:
         """Number of shares remaining to be filled."""
         return self.order.totalQuantity - self.filled()
 

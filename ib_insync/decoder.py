@@ -3,6 +3,7 @@
 import dataclasses
 import logging
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from .contract import (
     ComboLeg, Contract, ContractDescription, ContractDetails,
@@ -13,7 +14,7 @@ from .objects import (
     HistoricalTickLast, NewsProvider, PriceIncrement, SmartComponent,
     SoftDollarTier, TagValue, TickAttribBidAsk, TickAttribLast)
 from .order import Order, OrderComboLeg, OrderCondition, OrderState
-from .util import UNSET_DOUBLE, parseIBDatetime
+from .util import UNSET_DOUBLE, ZoneInfo, parseIBDatetime
 from .wrapper import Wrapper
 
 
@@ -145,7 +146,7 @@ class Decoder:
             94: self.wrap(
                 'pnl', [int, float, float, float], skip=1),
             95: self.wrap(
-                'pnlSingle', [int, int, float, float, float, float], skip=1),
+                'pnlSingle', [int, float, float, float, float, float], skip=1),
             96: self.historicalTicks,
             97: self.historicalTicksBidAsk,
             98: self.historicalTicksLast,
@@ -323,11 +324,13 @@ class Decoder:
                 # cd.minCashQtySize,
                 *fields) = fields
 
-        times = lastTimes.split()
+        times = lastTimes.split('-' if '-' in lastTimes else None)
         if len(times) > 0:
             c.lastTradeDateOrContractMonth = times[0]
         if len(times) > 1:
             cd.lastTradeTime = times[1]
+        if len(times) > 2:
+            cd.timeZoneId = times[2]
 
         cd.longName = cd.longName.encode().decode('unicode-escape')
         self.parse(cd)
@@ -393,7 +396,7 @@ class Decoder:
                 # cd.minCashQtySize,
                 *fields) = fields
 
-        times = lastTimes.split()
+        times = lastTimes.split('-' if '-' in lastTimes else None)
         if len(times) > 0:
             cd.maturity = times[0]
         if len(times) > 1:
@@ -439,14 +442,18 @@ class Decoder:
             ex.evRule,
             ex.evMultiplier,
             ex.modelCode,
-            ex.lastLiquidity) = fields
+            ex.lastLiquidity,
+            *fields) = fields
+        if self.serverVersion >= 178:
+            ex.pendingPriceRevision, *fields = fields
 
         self.parse(c)
         self.parse(ex)
-        time = parseIBDatetime(timeStr)
-        tz = self.wrapper.ib.TimezoneTWS
-        if tz:
-            time = tz.localize(time)
+        time = cast(datetime, parseIBDatetime(timeStr))
+        if not time.tzinfo:
+            tz = self.wrapper.ib.TimezoneTWS
+            if tz:
+                time = time.replace(tzinfo=ZoneInfo(str(tz)))
         ex.time = time.astimezone(timezone.utc)
         self.wrapper.execDetails(int(reqId), c, ex)
 
@@ -524,14 +531,9 @@ class Decoder:
 
         self.wrapper.tickOptionComputation(
             int(reqId), int(tickTypeInt), int(tickAttrib),
-            float(impliedVol) if impliedVol != '-1' else None,
-            float(delta) if delta != '-2' else None,
-            float(optPrice) if optPrice != '-1' else None,
-            float(pvDividend) if pvDividend != '-1' else None,
-            float(gamma) if gamma != '-2' else None,
-            float(vega) if vega != '-2' else None,
-            float(theta) if theta != '-2' else None,
-            float(undPrice) if undPrice != '-1' else None)
+            float(impliedVol), float(delta), float(optPrice),
+            float(pvDividend), float(gamma), float(vega),
+            float(theta), float(undPrice))
 
     def deltaNeutralValidation(self, fields):
         _, _, reqId, conId, delta, price = fields
@@ -649,6 +651,11 @@ class Decoder:
             m = int(m)
             cd.derivativeSecTypes = fields[:m]
             fields = fields[m:]
+            if self.serverVersion >= 176:
+                (
+                    cd.contract.description,
+                    cd.contract.issuerId,
+                    *fields) = fields
             cds.append(cd)
 
         self.wrapper.symbolSamples(int(reqId), cds)
@@ -789,7 +796,7 @@ class Decoder:
         if tickType in (1, 2):
             price, size, mask, exchange, specialConditions = fields
             mask = int(mask)
-            attrib = TickAttribLast(
+            attrib: Any = TickAttribLast(
                 pastLimit=bool(mask & 1),
                 unreported=bool(mask & 2))
 
@@ -852,7 +859,10 @@ class Decoder:
             o.faGroup,
             o.faMethod,
             o.faPercentage,
-            o.faProfile,
+            *fields) = fields
+        if self.serverVersion < 177:
+            o.faProfile, *fields = fields
+        (
             o.modelCode,
             o.goodTillDate,
             o.rule80A,
@@ -908,7 +918,7 @@ class Decoder:
         numLegs = int(fields.pop(0))
         c.comboLegs = []
         for _ in range(numLegs):
-            leg = ComboLeg()
+            leg: Any = ComboLeg()
             (
                 leg.conId,
                 leg.ratio,
@@ -1005,7 +1015,7 @@ class Decoder:
             o.randomizePrice,
             *fields) = fields
 
-        if o.orderType == 'PEG BENCH':
+        if o.orderType in ('PEG BENCH', 'PEGBENCH'):
             (
                 o.referenceContractId,
                 o.isPeggedChangeAmountDecrease,
@@ -1054,6 +1064,14 @@ class Decoder:
             o.postToAts = fields.pop(0)
         if self.serverVersion >= 162:
             o.autoCancelParent = fields.pop(0)
+        if self.serverVersion >= 170:
+            (
+                o.minTradeQty,
+                o.minCompeteSize,
+                o.competeAgainstBestOffset,
+                o.midOffsetAtWhole,
+                o.midOffsetAtHalf,
+                *fields) = fields
 
         self.parse(c)
         self.parse(o)
@@ -1097,7 +1115,10 @@ class Decoder:
             o.faGroup,
             o.faMethod,
             o.faPercentage,
-            o.faProfile,
+            *fields) = fields
+        if self.serverVersion < 177:
+            o.faProfile, *fields = fields
+        (
             o.modelCode,
             o.goodTillDate,
             o.rule80A,
@@ -1141,7 +1162,7 @@ class Decoder:
         numLegs = int(fields.pop(0))
         c.comboLegs = []
         for _ in range(numLegs):
-            leg = ComboLeg()
+            leg: Any = ComboLeg()
             (
                 leg.conId,
                 leg.ratio,
@@ -1220,7 +1241,7 @@ class Decoder:
             o.randomizePrice,
             *fields) = fields
 
-        if o.orderType == 'PEG BENCH':
+        if o.orderType in ('PEG BENCH', 'PEGBENCH'):
             (
                 o.referenceContractId,
                 o.isPeggedChangeAmountDecrease,
@@ -1259,7 +1280,17 @@ class Decoder:
             o.routeMarketableToBbo,
             o.parentPermId,
             st.completedTime,
-            st.completedStatus) = fields
+            st.completedStatus,
+            *fields) = fields
+
+        if self.serverVersion >= 170:
+            (
+                o.minTradeQty,
+                o.minCompeteSize,
+                o.competeAgainstBestOffset,
+                o.midOffsetAtWhole,
+                o.midOffsetAtHalf,
+                *fields) = fields
 
         self.parse(c)
         self.parse(o)

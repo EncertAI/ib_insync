@@ -4,6 +4,104 @@ Changelog
 0.9
 ---
 
+
+Version 0.9.86
+^^^^^^^^^^^^^^
+
+* Fixed: :issue:`588`: Fixed account summary tag.
+* Fixed: :issue:`589`: Fixed more account summary tags.
+* pull:`598`: Year updates
+
+Version 0.9.85
+^^^^^^^^^^^^^^
+ * Fixed: :issue:`586`: Revert socket protocol back to version 176.
+
+Version 0.9.84
+^^^^^^^^^^^^^^
+* Potential fix for ``reqWshEventData``.
+
+Version 0.9.83
+^^^^^^^^^^^^^^
+* Added support for WSH (Wall Street Horizon) requests plus
+  the (blocking) convenience methods ``getWshMetaData`` and ``getWshEventData``.
+* Updated socket protocol to version 177.
+* Added support for ``Event`` security type.
+
+Version 0.9.82
+^^^^^^^^^^^^^^
+
+* Fixed: :issue:`534`: Session parsing for Forex contracts.
+* Fixed: :issue:`536`: Handle empty session field.
+* Fixed: :issue:`541`: Remove superfluous closing bracket.
+* Fixed: :issue:`542`: Use float size for ``pnlSingle``.
+* Fixed: :issue:`544`: Cancel head-time request after completion.
+* Fixed: :issue:`545`: Return ``Trade`` instead of ``Order`` for
+  ``reqOpenOrders`` and ``reqAllOpenOrders``.
+* :pull:`553`: Volume bar added.
+* :pull:`565`: Typo fix.
+
+Version 0.9.81
+^^^^^^^^^^^^^^
+
+* Add ``ContractDetails.tradingSessions()`` and
+  ``ContractDetails.liquidSessions()`` to parse session times.
+* Fix ``IBC.on2fatimeout`` command line argument for Unix.
+
+Version 0.9.80
+^^^^^^^^^^^^^^
+
+* Fix ``ib.reqMatchingSymbols`` to handle bond contracts.
+
+Version 0.9.79
+^^^^^^^^^^^^^^
+
+* Fix datetime parsing.
+
+Version 0.9.78
+^^^^^^^^^^^^^^
+
+* Added ``account`` parameter to ``ib.portfolio()``.
+* Added ``IBC.on2fatimeout`` field.
+* Removed obsolete ``IBController``.
+* Fixed: :issue:`530`: Use explicit timezone in requests as per new API requirement.
+
+Version 0.9.77
+^^^^^^^^^^^^^^
+
+* :pull:`528`: Fixes regression in ``client.py``.
+
+Version 0.9.76
+^^^^^^^^^^^^^^
+
+* Fixed: :issue:`525`: For ``whatIf`` request treat error 110 as failure.
+
+Version 0.9.75
+^^^^^^^^^^^^^^
+
+* Fixed: :issue:`524`: Use fix from Papakipos for issue with ``FlexReport`` downloading.
+
+Version 0.9.74
+^^^^^^^^^^^^^^
+
+* Fix ``reqContractDetails`` bug in combination with latest TWS.
+* Update the code to comply with stricter MyPy checks.
+
+Version 0.9.73
+^^^^^^^^^^^^^^
+
+* :pull:`523`: Fix ``completedOrder`` parsing for new socket protocol.
+
+Version 0.9.72
+^^^^^^^^^^^^^^
+
+* :pull:`507`: Fixes ``bondContractDetails`` request.
+* Fixed: :issue:`502`: Treat error 110 as a warning.
+* Added ``manualOrderTime`` and ``manualCancelOrderTime`` for audit trails.
+* Added ``PEG MID`` and ``PEG BEST`` order types.
+* Added contract fields ``description`` and ``issuerId``.
+* Added ``IB.reqUserInfo()``.
+* Support socket protocol version 176.
+
 Version 0.9.71
 ^^^^^^^^^^^^^^
 

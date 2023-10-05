@@ -1,4 +1,4 @@
-|Build| |Group| |PyVersion| |Status| |PyPiVersion| |CondaVersion| |License| |Downloads| |Docs|
+|Build| |Group| |PyVersion| |Status| |PyPiVersion| |License| |Downloads| |Docs|
 
 Introduction
 ============
@@ -32,15 +32,10 @@ Installation
 
     pip install ib_insync
 
-For Python 3.6 install the ``dataclasses`` package as well
-(newer Python versions already have it)::
-
-    pip install dataclasses
-
 Requirements:
 
 * Python 3.6 or higher;
-* A running TWS or IB Gateway application (version 972 or higher).
+* A running TWS or IB Gateway application (version 1023 or higher).
   Make sure the
   `API port is enabled <https://interactivebrokers.github.io/tws-api/initial_setup.html>`_
   and 'Download open orders on connection' is checked.
@@ -65,7 +60,7 @@ This is a complete script to download historical data:
         contract, endDateTime='', durationStr='30 D',
         barSizeSetting='1 hour', whatToShow='MIDPOINT', useRTH=True)
 
-    # convert to pandas dataframe:
+    # convert to pandas dataframe (pandas needs to be installed):
     df = util.df(bars)
     print(df)
 
@@ -93,22 +88,6 @@ Discussion
 
 The `insync user group <https://groups.io/g/insync>`_ is the place to discuss
 IB-insync and anything related to it.
-
-Consultancy & Development
--------------------------
-
-IB-insync offers an easy entry into building automated trading systems
-for both individual traders and fintech companies. However, to get the most out
-of it is not a trivial matter and is beyond the reach of most developers.
-
-If you need expert help, you can contact me. This can be for a small project,
-such as fixing something in your own code, or it can be creating an entire new
-trading infrastructure.
-Please provide enough details so that I can assess both the feasibility and
-the scope. Many folks worry about having to provide their 'secret sauce',
-but that is never necessary (although you're perfectly welcome
-to send that as well!)
-
 
 Disclaimer
 ----------
@@ -148,7 +127,7 @@ Good luck and enjoy,
    :alt: Documentation
    :target: https://ib-insync.readthedocs.io/api.html
 
-.. |Downloads| image:: https://pepy.tech/badge/ib-insync
+.. |Downloads| image:: https://static.pepy.tech/badge/ib-insync
    :alt: Number of downloads
    :target: https://pepy.tech/project/ib-insync
 

@@ -1,5 +1,6 @@
 """Financial instrument types used by Interactive Brokers."""
 
+import datetime as dt
 from dataclasses import dataclass, field
 from typing import List, NamedTuple, Optional
 
@@ -43,6 +44,7 @@ class Contract:
             * 'NEWS' = News
             * 'FUND' = Mutual fund
             * 'CRYPTO' = Crypto currency
+            * 'EVENT' = Bet on an event
         lastTradeDateOrContractMonth (str): The contract's last trading
             day or contract month (for Options and Futures).
             Strings with format YYYYMM will be interpreted as the
@@ -51,7 +53,7 @@ class Contract:
         strike (float): The option's strike price.
         right (str): Put or Call.
             Valid values are 'P', 'PUT', 'C', 'CALL', or '' for non-options.
-        multiplier (str): he instrument's multiplier (i.e. options, futures).
+        multiplier (str): The instrument's multiplier (i.e. options, futures).
         exchange (str): The destination exchange.
         currency (str): The underlying's currency.
         localSymbol (str): The contract's symbol within its primary exchange.
@@ -95,6 +97,8 @@ class Contract:
     includeExpired: bool = False
     secIdType: str = ''
     secId: str = ''
+    description: str = ''
+    issuerId: str = ''
     comboLegsDescrip: str = ''
     comboLegs: List['ComboLeg'] = field(default_factory=list)
     deltaNeutralContract: Optional['DeltaNeutralContract'] = None
@@ -123,7 +127,8 @@ class Contract:
             'IOPT': Warrant,
             'BAG': Bag,
             'CRYPTO': Crypto,
-            'NEWS': Contract
+            'NEWS': Contract,
+            'EVENT': Contract,
         }.get(secType, Contract)
         if cls is not Contract:
             kwargs.pop('secType', '')
@@ -459,6 +464,11 @@ class DeltaNeutralContract:
     price: float = 0.0
 
 
+class TradingSession(NamedTuple):
+    start: dt.datetime
+    end: dt.datetime
+
+
 @dataclass
 class ContractDetails:
     contract: Optional[Contract] = None
@@ -498,7 +508,7 @@ class ContractDetails:
     couponType: str = ''
     callable: bool = False
     putable: bool = False
-    coupon: int = 0
+    coupon: float = 0
     convertible: bool = False
     maturity: str = ''
     issueDate: str = ''
@@ -506,6 +516,23 @@ class ContractDetails:
     nextOptionType: str = ''
     nextOptionPartial: bool = False
     notes: str = ''
+
+    def tradingSessions(self) -> List[TradingSession]:
+        return self._parseSessions(self.tradingHours)
+
+    def liquidSessions(self) -> List[TradingSession]:
+        return self._parseSessions(self.liquidHours)
+
+    def _parseSessions(self, s: str) -> List[TradingSession]:
+        tz = util.ZoneInfo(self.timeZoneId)
+        sessions = []
+        for sess in s.split(';'):
+            if not sess or 'CLOSED' in sess:
+                continue
+            sessions.append(TradingSession(*[
+                dt.datetime.strptime(t, '%Y%m%d:%H%M').replace(tzinfo=tz)
+                for t in sess.split('-')]))
+        return sessions
 
 
 @dataclass

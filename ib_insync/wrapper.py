@@ -5,27 +5,31 @@ import logging
 from collections import defaultdict
 from contextlib import suppress
 from datetime import datetime, timezone
-from typing import (
-    Any, Dict, List, Optional, Set, Tuple, Union, cast)
+from typing import (Any, Dict, List, Optional, Set, TYPE_CHECKING, Tuple,
+                    Union, cast)
 
 from ib_insync.contract import (
     Contract, ContractDescription, ContractDetails, DeltaNeutralContract,
     ScanData)
 from ib_insync.objects import (
     AccountValue, BarData, BarDataList, CommissionReport, DOMLevel,
-    DepthMktDataDescription, Dividends, Execution, Fill, FundamentalRatios,
-    HistogramData, HistoricalNews, HistoricalSchedule, HistoricalSession,
-    HistoricalTick, HistoricalTickBidAsk, HistoricalTickLast, MktDepthData,
-    NewsArticle, NewsBulletin, NewsProvider, NewsTick, OptionChain,
-    OptionComputation, PnL, PnLSingle, PortfolioItem, Position, PriceIncrement,
-    RealTimeBar, RealTimeBarList, TickAttribBidAsk, TickAttribLast,
-    TickByTickAllLast, TickByTickBidAsk, TickByTickMidPoint, TickData,
-    TradeLogEntry)
+    DepthMktDataDescription, Dividends, Execution, FamilyCode, Fill,
+    FundamentalRatios, HistogramData, HistoricalNews, HistoricalSchedule,
+    HistoricalSession, HistoricalTick, HistoricalTickBidAsk,
+    HistoricalTickLast, MktDepthData, NewsArticle, NewsBulletin, NewsProvider,
+    NewsTick, OptionChain, OptionComputation, PnL, PnLSingle, PortfolioItem,
+    Position, PriceIncrement, RealTimeBar, RealTimeBarList, SoftDollarTier,
+    TickAttribBidAsk, TickAttribLast, TickByTickAllLast, TickByTickBidAsk,
+    TickByTickMidPoint, TickData, TradeLogEntry)
 from ib_insync.order import Order, OrderState, OrderStatus, Trade
 from ib_insync.ticker import Ticker
 from ib_insync.util import (
     UNSET_DOUBLE, UNSET_INTEGER, dataclassAsDict, dataclassUpdate,
     getLoop, globalErrorEvent, isNan, parseIBDatetime)
+
+if TYPE_CHECKING:
+    from ib_insync.ib import IB
+
 
 OrderKeyType = Union[int, Tuple[int, int]]
 
@@ -52,60 +56,113 @@ class RequestError(Exception):
 class Wrapper:
     """Wrapper implementation for use with the IB class."""
 
-    def __init__(self, ib):
+    ib: 'IB'
+
+    accountValues: Dict[tuple, AccountValue]
+    """ (account, tag, currency, modelCode) -> AccountValue """
+
+    acctSummary: Dict[tuple, AccountValue]
+    """ (account, tag, currency) -> AccountValue """
+
+    portfolio: Dict[str, Dict[int, PortfolioItem]]
+    """ account -> conId -> PortfolioItem """
+
+    positions: Dict[str, Dict[int, Position]]
+    """ account -> conId -> Position """
+
+    trades: Dict[OrderKeyType, Trade]
+    """ (client, orderId) or permId -> Trade """
+
+    permId2Trade: Dict[int, Trade]
+    """ permId -> Trade """
+
+    fills: Dict[str, Fill]
+    """ execId -> Fill """
+
+    newsTicks: List[NewsTick]
+
+    msgId2NewsBulletin: Dict[int, NewsBulletin]
+    """ msgId -> NewsBulletin """
+
+    tickers: Dict[int, Ticker]
+    """ id(Contract) -> Ticker """
+
+    pendingTickers: Set[Ticker]
+
+    reqId2Ticker: Dict[int, Ticker]
+    """ reqId -> Ticker """
+
+    ticker2ReqId: Dict[Union[int, str], Dict[Ticker, int]]
+    """ tickType -> Ticker -> reqId """
+
+    reqId2Subscriber: Dict[int, Any]
+    """ live bars or live scan data """
+
+    reqId2PnL: Dict[int, PnL]
+    """ reqId -> PnL """
+
+    reqId2PnlSingle: Dict[int, PnLSingle]
+    """ reqId -> PnLSingle """
+
+    pnlKey2ReqId: Dict[tuple, int]
+    """ (account, modelCode) -> reqId """
+
+    pnlSingleKey2ReqId: Dict[tuple, int]
+    """ (account, modelCode, conId) -> reqId """
+
+    lastTime: datetime
+    """ UTC time of last network packet arrival. """
+
+    accounts: List[str]
+    clientId: int
+    wshMetaReqId: int
+    wshEventReqId: int
+    _reqId2Contract: Dict[int, Contract]
+    _timeout: float
+
+    _futures: Dict[Any, asyncio.Future]
+    """ _futures and _results are linked by key. """
+
+    _results: Dict[Any, Any]
+    """ _futures and _results are linked by key. """
+
+    _logger: logging.Logger
+    _timeoutHandle: Union[asyncio.TimerHandle, None]
+
+    def __init__(self, ib: 'IB'):
         self.ib = ib
         self._logger = logging.getLogger('ib_insync.wrapper')
         self._timeoutHandle = None
         self.reset()
 
     def reset(self):
-        self.accountValues: Dict[tuple, AccountValue] = {}
-        #    (account, tag, currency, modelCode) -> AccountValue
-        self.acctSummary: Dict[tuple, AccountValue] = {}
-        #    (account, tag, currency) -> AccountValue
-        self.portfolio: Dict[str, Dict[int, PortfolioItem]] = defaultdict(dict)
-        #    account -> conId -> PortfolioItem
+        self.accountValues = {}
+        self.acctSummary = {}
+        self.portfolio = defaultdict(dict)
         self.positions = defaultdict(dict)
-        #    account -> conId -> Position
-        self.trades: Dict[OrderKeyType, Trade] = {}
-        #    (client, orderId) or permId -> Trade
-        self.permId2Trade: Dict[int, Trade] = {}
-        #    permId -> Trade
-        self.fills: Dict[str, Fill] = {}
-        #    execId -> Fill
-        self.newsTicks: List[NewsTick] = []
-        self.msgId2NewsBulletin: Dict[int, NewsBulletin] = {}
-        #    msgId -> NewsBulletin
-        self.tickers: Dict[int, Ticker] = {}
-        #    id(Contract) -> Ticker
-        self.pendingTickers: Set[Ticker] = set()
-        self.reqId2Ticker: Dict[int, Ticker] = {}
-        #    reqId -> Ticker
-        self.ticker2ReqId: Dict[Union[int, str], Dict[Ticker, int]] = \
-            defaultdict(dict)
-        #    tickType -> Ticker -> reqId
-        self.reqId2Subscriber: Dict[int, Any] = {}
-        #    live bars or live scan data
-        self.reqId2PnL: Dict[int, PnL] = {}
-        #    reqId -> PnL
-        self.reqId2PnlSingle: Dict[int, PnLSingle] = {}
-        #    reqId -> PnLSingle
-        self.pnlKey2ReqId: Dict[tuple, int] = {}
-        #    (account, modelCode) -> reqId
-        self.pnlSingleKey2ReqId: Dict[tuple, int] = {}
-        #    (account, modelCode, conId) -> reqId
-
-        # futures and results are linked by key:
-        self._futures: Dict[Any, asyncio.Future] = {}
-        self._results: Dict[Any, Any] = {}
-
-        # UTC time of last network packet arrival:
-        self.lastTime: datetime = None
-
-        self._reqId2Contract: Dict[int, Contract] = {}
-        self.accounts: List[str] = []
-        self.clientId: int = -1
-        self._timeout: float = 0
+        self.trades = {}
+        self.permId2Trade = {}
+        self.fills = {}
+        self.newsTicks = []
+        self.msgId2NewsBulletin = {}
+        self.tickers = {}
+        self.pendingTickers = set()
+        self.reqId2Ticker = {}
+        self.ticker2ReqId = defaultdict(dict)
+        self.reqId2Subscriber = {}
+        self.reqId2PnL = {}
+        self.reqId2PnlSingle = {}
+        self.pnlKey2ReqId = {}
+        self.pnlSingleKey2ReqId = {}
+        self.lastTime = datetime.min
+        self.accounts = []
+        self.clientId = -1
+        self.wshMetaReqId = 0
+        self.wshEventReqId = 0
+        self._reqId2Contract = {}
+        self._timeout = 0
+        self._futures = {}
+        self._results = {}
         self.setTimeout(0)
 
     def setEventsDone(self):
@@ -134,7 +191,7 @@ class Wrapper:
         Start a new request and return the future that is associated
         with the key and container. The container is a list by default.
         """
-        future = asyncio.Future()
+        future: asyncio.Future = asyncio.Future()
         self._futures[key] = future
         self._results[key] = container if container is not None else []
         if contract:
@@ -209,7 +266,7 @@ class Wrapper:
             self._setTimer(timeout)
 
     def _setTimer(self, delay: float = 0):
-        if not self.lastTime:
+        if self.lastTime == datetime.min:
             return
         now = datetime.now(timezone.utc)
         diff = (now - self.lastTime).total_seconds()
@@ -305,6 +362,14 @@ class Wrapper:
     def positionEnd(self):
         self._endReq('positions')
 
+    def positionMulti(
+            self, reqId: int, account: str, modelCode: str,
+            contract: Contract, pos: float, avgCost: float):
+        pass
+
+    def positionMultiEnd(self, reqId: int):
+        pass
+
     def pnl(
             self, reqId: int, dailyPnL: float, unrealizedPnL: float,
             realizedPnL: float):
@@ -354,6 +419,7 @@ class Wrapper:
                 trade.order.lmtPrice = order.lmtPrice
                 trade.order.auxPrice = order.auxPrice
                 trade.order.orderType = order.orderType
+                trade.order.orderRef = order.orderRef
             else:
                 # ignore '?' values in the order
                 order = Order(**{
@@ -371,7 +437,7 @@ class Wrapper:
                 self.ib.openOrderEvent.emit(trade)
             else:
                 # response to reqOpenOrders or reqAllOpenOrders
-                results.append(order)
+                results.append(trade)
 
         # make sure that the client issues order ids larger than any
         # order id encountered (even from other clients) to avoid
@@ -653,9 +719,9 @@ class Wrapper:
             ticker.auctionPrice = price
         elif tickType == 37:
             ticker.markPrice = price
-        elif tickType == 50:
+        elif tickType in (50, 103):
             ticker.bidYield = price
-        elif tickType == 51:
+        elif tickType in (51, 104):
             ticker.askYield = price
         elif tickType == 52:
             ticker.lastYield = price
@@ -789,7 +855,7 @@ class Wrapper:
             elif tickType == 84:
                 ticker.lastExchange = value
             elif tickType == 47:
-                # https://interactivebrokers.github.io/tws-api/fundamental_ratios_tags.html
+                # https://web.archive.org/web/20200725010343/https://interactivebrokers.github.io/tws-api/fundamental_ratios_tags.html
                 d = dict(t.split('=')                     # type: ignore
                          for t in value.split(';') if t)  # type: ignore
                 for k, v in d.items():
@@ -924,8 +990,15 @@ class Wrapper:
             impliedVol: float, delta: float, optPrice: float, pvDividend:
             float, gamma: float, vega: float, theta: float, undPrice: float):
         comp = OptionComputation(
-            tickAttrib, impliedVol, delta, optPrice, pvDividend,
-            gamma, vega, theta, undPrice)
+            tickAttrib,
+            impliedVol if impliedVol != -1 else None,
+            delta if delta != -2 else None,
+            optPrice if optPrice != -1 else None,
+            pvDividend if pvDividend != -1 else None,
+            gamma if gamma != -2 else None,
+            vega if vega != -2 else vega,
+            theta if theta != -2 else theta,
+            undPrice if undPrice != -1 else None)
         ticker = self.reqId2Ticker.get(reqId)
         if ticker:
             # reply from reqMktData
@@ -1053,12 +1126,39 @@ class Wrapper:
             startDateTime, endDateTime, timeZone, sessions)
         self._endReq(reqId, schedule)
 
+    def wshMetaData(self, reqId: int, dataJson: str):
+        self.ib.wshMetaEvent.emit(dataJson)
+        self._endReq(reqId, dataJson)
+
+    def wshEventData(self, reqId: int, dataJson: str):
+        self.ib.wshEvent.emit(dataJson)
+        self._endReq(reqId, dataJson)
+
+    def userInfo(self, reqId: int, whiteBrandingId: str):
+        self._endReq(reqId)
+
+    def softDollarTiers(self, reqId: int, tiers: List[SoftDollarTier]):
+        pass
+
+    def familyCodes(self, familyCodes: List[FamilyCode]):
+        pass
+
     def error(
             self, reqId: int, errorCode: int, errorString: str,
             advancedOrderRejectJson: str):
         # https://interactivebrokers.github.io/tws-api/message_codes.html
+        isRequest = reqId in self._futures
+        trade = self.trades.get((self.clientId, reqId))
         warningCodes = {110, 165, 202, 399, 404, 434, 492, 10167}
         isWarning = errorCode in warningCodes or 2100 <= errorCode < 2200
+        if errorCode == 110 and isRequest:
+            # whatIf request failed
+            isWarning = False
+        if errorCode == 110 and trade and \
+                trade.orderStatus.status == OrderStatus.PendingSubmit:
+            # invalid price for a new order must cancel it
+            isWarning = False
+
         msg = (
             f'{"Warning" if isWarning else "Error"} '
             f'{errorCode}, reqId {reqId}: {errorString}')
@@ -1070,7 +1170,7 @@ class Wrapper:
             self._logger.info(msg)
         else:
             self._logger.error(msg)
-            if reqId in self._futures:
+            if isRequest:
                 # the request failed
                 if self.ib.RaiseRequestErrors:
                     error = RequestError(reqId, errorCode, errorString)
@@ -1078,9 +1178,8 @@ class Wrapper:
                 else:
                     self._endReq(reqId)
 
-            elif (self.clientId, reqId) in self.trades:
+            elif trade:
                 # something is wrong with the order, cancel it
-                trade = self.trades[(self.clientId, reqId)]
                 if advancedOrderRejectJson:
                     trade.advancedError = advancedOrderRejectJson
                 if not trade.isDone():
