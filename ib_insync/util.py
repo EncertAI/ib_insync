@@ -514,13 +514,18 @@ def formatIBDatetime(t: Union[dt.date, dt.datetime, str, None]) -> str:
     if not t:
         s = ''
     elif isinstance(t, dt.datetime):
-        # convert to UTC timezone
-        t = t.astimezone(tz=dt.timezone.utc)
-        s = t.strftime('%Y%m%d %H:%M:%S UTC')
-    elif isinstance(t, dt.date):
-        t = dt.datetime(
-            t.year, t.month, t.day, 23, 59, 59).astimezone(tz=dt.timezone.utc)
-        s = t.strftime('%Y%m%d %H:%M:%S UTC')
+        if dt.tzinfo:
+            # convert to UTC timezone
+            dt = dt.astimezone(tz=dt.timezone.utc)
+        s = dt.strftime(f'%Y%m%d-%H:%M:%S')
+    # elif isinstance(t, dt.datetime):
+    #     # convert to UTC timezone
+    #     t = t.astimezone(tz=dt.timezone.utc)
+    #     s = t.strftime('%Y%m%d %H:%M:%S UTC')
+    # elif isinstance(t, dt.date):
+    #     t = dt.datetime(
+    #         t.year, t.month, t.day, 23, 59, 59).astimezone(tz=dt.timezone.utc)
+    #     s = t.strftime('%Y%m%d %H:%M:%S UTC')
     else:
         s = t
     return s

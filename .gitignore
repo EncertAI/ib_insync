@@ -1,4 +1,4 @@
-ib_insync/__pycache__
+__pycache__/
 dist
 build
 .vscode

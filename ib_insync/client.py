@@ -217,7 +217,7 @@ class Client:
             await asyncio.wait_for(self.apiStart, timeout)
             self._logger.info('API connection ready')
         except BaseException as e:
-            self.disconnect()
+            await self.disconnectAsync()
             msg = f'API connection failed: {e!r}'
             self._logger.error(msg)
             self.apiError.emit(msg)
@@ -225,11 +225,14 @@ class Client:
                 self._logger.error('Make sure API port on TWS/IBG is open')
             raise
 
-    def disconnect(self):
+    def disconnect(self, timeout=2.0):
         """Disconnect from IB connection."""
+        run(self.disconnectAsync(timeout))
+
+    async def disconnectAsync(self, timeout=2.0):
         self._logger.info('Disconnecting')
         self.connState = Client.DISCONNECTED
-        self.conn.disconnect()
+        await asyncio.wait_for(self.conn.disconnectAsync(), timeout)
         self.reset()
 
     def send(self, *fields, makeEmpty=True):
@@ -375,7 +378,7 @@ class Client:
             self.apiError.emit(msg)
         self.wrapper.setEventsDone()
         if wasReady:
-            self.wrapper.connectionClosed()
+            self.wrapper.connectionClosed(connected=self.isConnected())
         self.reset()
         if wasReady:
             self.apiEnd.emit()

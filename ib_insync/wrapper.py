@@ -177,12 +177,13 @@ class Wrapper:
         for event in events:
             event.set_done()
 
-    def connectionClosed(self):
-        error = ConnectionError('Socket disconnect')
-        for future in self._futures.values():
-            if not future.done():
-                future.set_exception(error)
-        globalErrorEvent.emit(error)
+    def connectionClosed(self, connected):
+        if connected:
+            error = ConnectionError('Socket disconnect')
+            for future in self._futures.values():
+                if not future.done():
+                    future.set_exception(error)
+            globalErrorEvent.emit(error)
         self.reset()
 
     def startReq(self, key, contract=None, container=None):

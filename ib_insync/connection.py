@@ -32,17 +32,18 @@ class Connection(asyncio.Protocol):
     async def connectAsync(self, host, port):
         if self.transport:
             # wait until a previous connection is finished closing
-            self.disconnect()
-            await self.disconnected
+            await self.disconnectAsync()
         self.reset()
         loop = getLoop()
         self.transport, _ = await loop.create_connection(
             lambda: self, host, port)
 
-    def disconnect(self):
+    async def disconnectAsync(self):
         if self.transport:
             self.transport.write_eof()
             self.transport.close()
+            await self.disconnected
+            await asyncio.sleep(0.5)
 
     def isConnected(self):
         return self.transport is not None
