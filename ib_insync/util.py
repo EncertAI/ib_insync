@@ -57,7 +57,7 @@ def df(objs, labels: Optional[List[str]] = None):
                 df.columns = _fields
     else:
         df = None
-    if labels:
+    if df is not None and labels:
         exclude = [label for label in df if label not in labels]
         df = df.drop(exclude, axis=1)
     return df
@@ -514,10 +514,10 @@ def formatIBDatetime(t: Union[dt.date, dt.datetime, str, None]) -> str:
     if not t:
         s = ''
     elif isinstance(t, dt.datetime):
-        if dt.tzinfo:
+        if t.tzinfo:
             # convert to UTC timezone
-            dt = dt.astimezone(tz=dt.timezone.utc)
-        s = dt.strftime(f'%Y%m%d-%H:%M:%S')
+            t = t.astimezone(tz=dt.timezone.utc)
+        s = t.strftime(r'%Y%m%d-%H:%M:%S')
     # elif isinstance(t, dt.datetime):
     #     # convert to UTC timezone
     #     t = t.astimezone(tz=dt.timezone.utc)
