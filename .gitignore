@@ -13,4 +13,3 @@ docs/html/.buildinfo
 docs/html/.doctrees
 docs/doctrees
 ib_insync.egg-info
-tests/__pycache__
