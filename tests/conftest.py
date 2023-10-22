@@ -1,54 +1,16 @@
 import asyncio
 import base64
-from collections import defaultdict
 import json
-import pathlib
 import struct
-from typing import Optional
+from collections import defaultdict
+from pathlib import Path
 
 import pytest
 
 import ib_insync as ibi
 
 
-class JsonReader:
-    def __init__(self, json_file: str):
-        with open(json_file) as f:
-            self.request_response = json.load(f)
-        self.queue = asyncio.Queue()
-        self.response = None
-
-    def write(self, encoded_request: str, reqId: Optional[str] = None):
-        self.queue.put_nowait((encoded_request, reqId))
-
-    async def read(self, n: int = -1) -> bytes:
-        if self.response is None:
-            encoded_request, reqId = await self.queue.get()
-            if encoded_request not in self.request_response:
-                print(f"request not found: {encoded_request}")
-                self.response = []
-            else:
-                self.response = self.request_response[encoded_request]
-                self.reqId = reqId
-            self.index = 0
-        encoded_data = self.response[self.index]
-        data = base64.b64decode(encoded_data)
-        if self.reqId is not None:
-            fields = data[4:].decode(errors='backslashreplace').split('\0')
-            if fields[0] != '8':
-                fields[2] = self.reqId
-                data = data[:4] + ('\0'.join(fields)).encode()
-        self.index += 1
-        if self.index == len(self.response):
-            self.response = None
-        return data
-
-    def close(self):
-        self.queue
-        self.response = None
-
-
-def get_fields(buffer: bytes) -> list[str]:
+def get_fields(buffer: bytes) -> tuple[list[str], bytes, bytes]:
     fields = []
     data = b""
     msgEnd = 0
@@ -66,7 +28,57 @@ def get_fields(buffer: bytes) -> list[str]:
     return fields, buffer, data
 
 
+class FakeTwsStreamReader:
+    queue: asyncio.Queue[tuple[str, str]]
+
+    def __init__(self, json_file: Path):
+        with open(json_file) as f:
+            self.request_response = json.load(f)
+        self.queue = asyncio.Queue()
+        self.response = None
+
+    async def read(self, n: int = -1) -> bytes:
+        if self.response is None:
+            encoded_request, reqId = await self.queue.get()
+            self.response = self.request_response[encoded_request]
+            self.reqId = reqId
+            self.index = 0
+        encoded_data = self.response[self.index]
+        data = base64.b64decode(encoded_data)
+        if self.reqId:
+            fields = data[4:].decode(errors='backslashreplace').split('\0')
+            if fields[0] != '8':
+                fields[2] = self.reqId
+                data = data[:4] + ('\0'.join(fields)).encode()
+        self.index += 1
+        if self.index == len(self.response):
+            self.response = None
+        return data
+
+
+class FakeTwsStreamWriter:
+    def __init__(self, queue: asyncio.Queue[tuple[str, str]]):
+        self.queue = queue
+
+    def write(self, request: bytes):
+        encoded_request, reqId = request.decode(errors='backslashreplace').split('\0')
+        self.queue.put_nowait((encoded_request, reqId))
+
+    def close(self):
+        self.queue
+
+
+def open_fake_tws_connection(json_file: Path) -> tuple[FakeTwsStreamReader, FakeTwsStreamWriter]:
+    reader = FakeTwsStreamReader(json_file)
+    writer = FakeTwsStreamWriter(reader.queue)
+    return reader, writer
+
+
 class TwsStub:
+    StreamReader = asyncio.StreamReader | FakeTwsStreamReader
+    StreamWriter = asyncio.StreamWriter | FakeTwsStreamWriter
+    request_response: dict[str, list[str]]
+
     def __init__(
         self,
         stub: bool = True,
@@ -78,28 +90,27 @@ class TwsStub:
         self.stub_port = stub_port
         self.tws_host = tws_host
         self.tws_port = tws_port
-        file_parent = pathlib.Path(__file__).parent.resolve()
+        file_parent = Path(__file__).parent.resolve()
         self.json_file = file_parent / 'request_response.json'
 
     async def start(self) -> 'TwsStub':
         self.stub_server = await asyncio.start_server(self.handle_connection, 'localhost', self.stub_port)
         return self
 
-    async def handle_connection(self, reader, writer):
+    async def handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         if not self.stub:
             tws_reader, tws_writer = await asyncio.open_connection(self.tws_host, self.tws_port)
             self.request_response = defaultdict(list)
             self.current_request = None
         else:
-            reader_writer = JsonReader(self.json_file)
-            tws_reader, tws_writer = reader_writer, reader_writer
+            tws_reader, tws_writer = open_fake_tws_connection(self.json_file)
 
         await asyncio.gather(
             self.response_reader(tws_reader, writer),
             self.request_writer(reader, tws_writer),
         )
 
-    async def response_reader(self, tws_reader, writer):
+    async def response_reader(self, tws_reader: StreamReader, writer: asyncio.StreamWriter):
         buffer = b""
         while True:
             data = await tws_reader.read(1 << 12)
@@ -113,11 +124,12 @@ class TwsStub:
                     break
                 print(f"TwsStub response: {fields}")
                 if not self.stub:
+                    assert self.current_request
                     encoded_data = base64.b64encode(data).decode()
                     self.request_response[self.current_request].append(encoded_data)
                 writer.write(data)
 
-    async def request_writer(self, reader, tws_writer):
+    async def request_writer(self, reader: asyncio.StreamReader, tws_writer: StreamWriter):
         first_request = True
         buffer = b""
         while True:
@@ -144,8 +156,9 @@ class TwsStub:
                     await asyncio.sleep(0.1)
                 else:
                     code = int(fields[0]) if fields[0].isdigit() else 0
-                    reqId = fields[2] if code in [7, 62, 76] else None
-                    tws_writer.write(encoded_request, reqId)
+                    reqId = fields[2] if code in [7, 62, 76] else ""
+                    data = (encoded_request + '\0' + reqId).encode()
+                    tws_writer.write(data)
 
         tws_writer.close()
 
