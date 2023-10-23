@@ -40,6 +40,8 @@ class FakeTwsStreamReader:
     async def read(self, n: int = -1) -> bytes:
         if self.response is None:
             encoded_request, reqId = await self.queue.get()
+            if encoded_request == "CLOSE":
+                return b""
             self.response = self.request_response[encoded_request]
             self.reqId = reqId
             self.index = 0
@@ -65,7 +67,7 @@ class FakeTwsStreamWriter:
         self.queue.put_nowait((encoded_request, reqId))
 
     def close(self):
-        self.queue
+        self.queue.put_nowait(("CLOSE", ""))
 
 
 def open_fake_tws_connection(json_file: Path) -> tuple[FakeTwsStreamReader, FakeTwsStreamWriter]:
