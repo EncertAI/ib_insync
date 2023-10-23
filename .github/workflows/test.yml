@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-20.04
     strategy:
       matrix:
-        python-version: [ 3.6, 3.7, 3.8, 3.9, "3.10", "3.11" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12" ]
 
     steps:
       - uses: actions/checkout@v3
@@ -20,14 +20,16 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install flake8 mypy types-dataclasses .
+          pip install flake8 mypy types-dataclasses pytest pytest-asyncio .
 
       - name: Flake8 static code analysis
-        run:
+        run: |
           flake8 ib_insync
 
       - name: MyPy static code analysis
         run: |
           mypy -p ib_insync
 
-
+      - name: Unit tests
+        run: |
+          pytest --asyncio-mode=auto
