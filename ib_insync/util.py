@@ -106,8 +106,8 @@ def dataclassUpdate(obj, *srcObjs, **kwargs) -> object:
     if not is_dataclass(obj):
         raise TypeError(f'Object {obj} is not a dataclass')
     for srcObj in srcObjs:
-        obj.__dict__.update(dataclassAsDict(srcObj))
-    obj.__dict__.update(**kwargs)
+        obj.__dict__.update(dataclassAsDict(srcObj))  # type: ignore
+    obj.__dict__.update(**kwargs)  # type: ignore
     return obj
 
 

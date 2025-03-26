@@ -1338,6 +1338,8 @@ class IB:
         """
         reqId = self.client.getReqId()
         ticker = self.wrapper.startTicker(reqId, contract, 'mktDepth')
+        ticker.domBids.clear()
+        ticker.domAsks.clear()
         self.client.reqMktDepth(
             reqId, contract, numRows, isSmartDepth, mktDepthOptions)
         return ticker
@@ -1354,8 +1356,6 @@ class IB:
         reqId = self.wrapper.endTicker(ticker, 'mktDepth') if ticker else 0
         if ticker and reqId:
             self.client.cancelMktDepth(reqId, isSmartDepth)
-            ticker.domBids.clear()
-            ticker.domAsks.clear()
         else:
             self._logger.error(
                 f'cancelMktDepth: No reqId found for contract {contract}')
@@ -1862,6 +1862,7 @@ class IB:
                     f'possibles are {possibles}')
             else:
                 c = detailsList[0].contract
+                assert c
                 if contract.exchange == 'SMART':
                     # overwriting 'SMART' exchange can create invalid contract
                     c.exchange = contract.exchange
