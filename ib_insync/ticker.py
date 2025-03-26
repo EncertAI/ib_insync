@@ -264,7 +264,7 @@ class BarList(List[Bar]):
     def __eq__(self, other):
         return self is other
 
-    def __hash__(self):  # type: ignore 
+    def __hash__(self):  # type: ignore
         return id(self)
 
 
