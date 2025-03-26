@@ -424,7 +424,7 @@ class BarDataList(List[BarData]):
     def __eq__(self, other):
         return self is other
 
-    def __hash__(self):
+    def __hash__(self):  # type: ignore
         return id(self)
 
 
@@ -452,7 +452,7 @@ class RealTimeBarList(List[RealTimeBar]):
     def __eq__(self, other):
         return self is other
 
-    def __hash__(self):
+    def __hash__(self):  # type: ignore
         return id(self)
 
 
@@ -476,7 +476,7 @@ class ScanDataList(List[ScanData]):
     def __eq__(self, other):
         return self is other
 
-    def __hash__(self):
+    def __hash__(self):  # type: ignore
         return id(self)
 
 

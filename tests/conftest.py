@@ -5,7 +5,7 @@ import struct
 from collections import defaultdict
 from pathlib import Path
 
-import pytest
+import pytest_asyncio
 
 import ib_insync as ibi
 
@@ -174,14 +174,13 @@ class TwsStub:
                 json.dump(self.request_response, f)
 
 
-@pytest.fixture(scope='session')
+@pytest_asyncio.fixture(scope='session')
 def event_loop():
     loop = ibi.util.getLoop()
     yield loop
-    loop.close()
 
 
-@pytest.fixture(scope='session')
+@pytest_asyncio.fixture(scope='session')
 async def ib():
     tws = await TwsStub().start()
     ib = ibi.IB()
