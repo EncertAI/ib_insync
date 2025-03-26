@@ -251,7 +251,7 @@ class Client:
             elif type is int:
                 s = str(field)
             elif typ is float:
-                s = 'Infinite' if field == math.inf else str(field)
+                s = 'Infinity' if field == math.inf else str(field)
             elif typ is bool:
                 s = '1' if field else '0'
             elif typ is list:
